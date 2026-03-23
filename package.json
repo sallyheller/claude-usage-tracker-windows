@@ -1,0 +1,23 @@
+{
+  "name": "claude-usage-tracker",
+  "displayName": "Claude Usage Tracker",
+  "description": "Muestra el coste de Claude Code en la barra de estado de VS Code",
+  "version": "1.0.0",
+  "publisher": "masorange",
+"engines": { "vscode": "^1.75.0" },
+  "categories": ["Other"],
+  "activationEvents": ["*"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeUsage.openReport",
+        "title": "Claude Usage: Abrir reporte"
+      },
+      {
+        "command": "claudeUsage.refresh",
+        "title": "Claude Usage: Actualizar"
+      }
+    ]
+  }
+}
