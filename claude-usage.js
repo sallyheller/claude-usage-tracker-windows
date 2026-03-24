@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * claude-usage.js — Tracker de uso y costes de Claude Code para Windows
+ * claude-usage.js — Reporte HTML de uso y costes de Claude Code (Windows)
  *
  * Uso:
- *   node claude-usage.js           (modo API — coste real por tokens)
- *   node claude-usage.js --plan    (modo Plan — coste equivalente estimado)
+ *   node claude-usage.js           → modo API  (coste real)
+ *   node claude-usage.js --plan    → modo Plan (equivalente estimado, suscripción plana)
  *
- * Genera un reporte HTML y lo abre en el navegador.
+ * Genera un reporte HTML con tabs (Mes / Proyecto / Modelo),
+ * export CSV, gasto de hoy y barra de progreso mensual.
  */
 
 const fs   = require('fs');
@@ -14,12 +15,10 @@ const path = require('path');
 const os   = require('os');
 const { execSync } = require('child_process');
 
-// ─── Modo de facturación ──────────────────────────────────────────────────────
-// --plan  → suscripción plana (Max / Pro): los costes son equivalentes estimados
-// --api   → facturación por tokens (por defecto)
+// ─── Modo de facturación ─────────────────────────────────────────────────────
 const IS_PLAN = process.argv.includes('--plan');
 
-// ─── Precios por modelo (USD por millón de tokens) ───────────────────────────
+// ─── Precios por modelo (USD / millón de tokens) ─────────────────────────────
 const PRICING = {
   'claude-sonnet-4-6': { input: 3.00, cacheWrite: 3.75, cacheRead: 0.30, output: 15.00 },
   'claude-sonnet-3-7': { input: 3.00, cacheWrite: 3.75, cacheRead: 0.30, output: 15.00 },
@@ -55,28 +54,31 @@ function calcCost(usage, model) {
   );
 }
 
-// ─── Nombre de proyecto a partir del nombre de carpeta ────────────────────────
+// ─── Nombre de proyecto ───────────────────────────────────────────────────────
 function cleanProjectName(folder) {
-  // Las carpetas de Claude usan '---' como separador de ruta
+  // Claude usa '---' como separador de path en los nombres de carpeta
   const parts = folder.split('---').filter(Boolean);
   const last  = parts[parts.length - 1] || folder;
-  // Elimina prefijos de unidad tipo "C--Users-xxx-"
-  return last.replace(/^[A-Z]--[^-]+-[^-]+-/i, '') || last;
+  // Elimina prefijos de usuario tipo "C--Users-nombre-"
+  return last.replace(/^[A-Za-z]--[^-]+-[^-]+-/i, '') || last;
 }
 
 // ─── Lectura de datos ─────────────────────────────────────────────────────────
 const projectsDir = path.join(os.homedir(), '.claude', 'projects');
 
 if (!fs.existsSync(projectsDir)) {
-  console.error(`No se encontró la carpeta de proyectos: ${projectsDir}`);
+  console.error(`No se encontró la carpeta: ${projectsDir}`);
   process.exit(1);
 }
 
-const byMonth   = {};
-const byProject = {};
-const byModel   = {};
+const byMonth   = {};  // { "2026-03": { project: { cost, tokens, models } } }
+const byProject = {};  // { project: { cost, tokens } }
+const byModel   = {};  // { model: { cost, input, cacheWrite, cacheRead, output } }
 let   totalCost = 0;
 let   totalTok  = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
+let   todayCost = 0;
+let   todayTok  = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
+const today     = new Date().toISOString().slice(0, 10); // "2026-03-24"
 
 const projectFolders = fs.readdirSync(projectsDir).filter(f => {
   try { return fs.statSync(path.join(projectsDir, f)).isDirectory(); } catch { return false; }
@@ -101,30 +103,41 @@ for (const folder of projectFolders) {
       if (entry.type !== 'assistant') continue;
       const usage = entry.message && entry.message.usage;
       if (!usage) continue;
-
       const model = (entry.message && entry.message.model) || 'unknown';
       if (model === '<synthetic>') continue;
-      const month = (entry.timestamp || '').slice(0, 7);
+      const timestamp = entry.timestamp || '';
+      const month     = timestamp.slice(0, 7);
+      const day       = timestamp.slice(0, 10);
       if (!month) continue;
 
       const cost = calcCost(usage, model);
       totalCost += cost;
-
       totalTok.input      += usage.input_tokens                || 0;
       totalTok.cacheWrite += usage.cache_creation_input_tokens || 0;
       totalTok.cacheRead  += usage.cache_read_input_tokens     || 0;
       totalTok.output     += usage.output_tokens               || 0;
 
+      if (day === today) {
+        todayCost += cost;
+        todayTok.input      += usage.input_tokens                || 0;
+        todayTok.cacheWrite += usage.cache_creation_input_tokens || 0;
+        todayTok.cacheRead  += usage.cache_read_input_tokens     || 0;
+        todayTok.output     += usage.output_tokens               || 0;
+      }
+
+      // Por mes + proyecto
       if (!byMonth[month])                    byMonth[month] = {};
       if (!byMonth[month][projectName])       byMonth[month][projectName] = { cost: 0, tokens: 0, models: {} };
       byMonth[month][projectName].cost   += cost;
       byMonth[month][projectName].tokens += (usage.input_tokens || 0) + (usage.output_tokens || 0);
       byMonth[month][projectName].models[model] = (byMonth[month][projectName].models[model] || 0) + cost;
 
+      // Por proyecto
       if (!byProject[projectName]) byProject[projectName] = { cost: 0, tokens: 0 };
       byProject[projectName].cost   += cost;
       byProject[projectName].tokens += (usage.input_tokens || 0) + (usage.output_tokens || 0);
 
+      // Por modelo
       if (!byModel[model]) byModel[model] = { cost: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
       byModel[model].cost       += cost;
       byModel[model].input      += usage.input_tokens                || 0;
@@ -135,102 +148,130 @@ for (const folder of projectFolders) {
   }
 }
 
-// ─── Helpers de formato ───────────────────────────────────────────────────────
-const fmt = n => n >= 1e6 ? `${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `${(n/1e3).toFixed(1)}K` : String(n);
-const $   = n => IS_PLAN ? `~$${n.toFixed(4)}` : `$${n.toFixed(4)}`;
-const $2  = n => IS_PLAN ? `~$${n.toFixed(2)}`  : `$${n.toFixed(2)}`;
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const fmt  = n => n >= 1e6 ? `${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `${(n/1e3).toFixed(1)}K` : String(n);
+const $4   = n => `${IS_PLAN ? '~' : ''}$${n.toFixed(4)}`;
+const $2   = n => `${IS_PLAN ? '~' : ''}$${n.toFixed(2)}`;
 
 function monthLabel(m) {
   const [y, mo] = m.split('-');
-  const nombres = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  return `${nombres[parseInt(mo,10)-1]} ${y}`;
+  const names = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  return `${names[parseInt(mo,10)-1]} ${y}`;
 }
 
-// ─── Resumen en terminal ──────────────────────────────────────────────────────
-const modeBadge = IS_PLAN ? ' [PLAN — coste equivalente estimado]' : ' [API — coste real]';
-console.log('\n╔══════════════════════════════════════════════╗');
-console.log('║     CLAUDE CODE — USO Y COSTES              ║');
-console.log('╚══════════════════════════════════════════════╝');
-console.log(modeBadge + '\n');
-console.log(`  TOTAL ACUMULADO: ${$(totalCost)}`);
-console.log(`  Tokens entrada:   ${fmt(totalTok.input)}`);
-console.log(`  Cache escritura:  ${fmt(totalTok.cacheWrite)}`);
-console.log(`  Cache lectura:    ${fmt(totalTok.cacheRead)}`);
-console.log(`  Tokens salida:    ${fmt(totalTok.output)}\n`);
+// ─── Datos para export CSV (se inyectan en el HTML como JSON) ─────────────────
+const meses    = Object.keys(byMonth).sort().reverse();
+const mesActual = meses[0] || '';
+const costeMes  = mesActual ? Object.values(byMonth[mesActual]).reduce((s,p)=>s+p.cost,0) : 0;
+const now       = new Date().toLocaleString('es-ES');
 
-const meses = Object.keys(byMonth).sort().reverse();
-for (const mes of meses) {
-  const proyectos = byMonth[mes];
-  const totalMes  = Object.values(proyectos).reduce((s, p) => s + p.cost, 0);
-  console.log(`  ── ${monthLabel(mes)}: ${$(totalMes)}`);
-  for (const [proj, data] of Object.entries(proyectos).sort((a,b) => b[1].cost - a[1].cost)) {
-    console.log(`     ${proj.padEnd(35)} ${$(data.cost)}`);
+// Filas CSV: mes, proyecto, coste, tokens in, tokens out
+const csvRows = [['Mes','Proyecto','Coste USD','Tokens Entrada','Tokens Salida','Cache Escritura','Cache Lectura']];
+for (const [mes, proyectos] of Object.entries(byMonth).sort()) {
+  for (const [proj, d] of Object.entries(proyectos)) {
+    csvRows.push([mes, proj, d.cost.toFixed(6), d.tokens, '', '', '']);
   }
-  console.log('');
+}
+// modelo rows
+const csvModelos = [['Modelo','Coste USD','Tokens Entrada','Cache Escritura','Cache Lectura','Tokens Salida']];
+for (const [model, d] of Object.entries(byModel)) {
+  csvModelos.push([model, d.cost.toFixed(6), d.input, d.cacheWrite, d.cacheRead, d.output]);
 }
 
-// ─── Generación del HTML ──────────────────────────────────────────────────────
-const planBanner = IS_PLAN
-  ? `<div class="plan-banner">Modo <strong>Plan</strong> — los costes mostrados son equivalentes estimados de API, no cargos reales. Tienes una suscripción de tarifa plana.</div>`
-  : '';
-
-const mesesTabla = meses.map(mes => {
+// ─── HTML: Tab "Por Mes" ─────────────────────────────────────────────────────
+const tabMes = meses.map(mes => {
   const proyectos = byMonth[mes];
-  const totalMes  = Object.values(proyectos).reduce((s, p) => s + p.cost, 0);
+  const totalMes  = Object.values(proyectos).reduce((s,p)=>s+p.cost,0);
   const filas = Object.entries(proyectos)
-    .sort((a, b) => b[1].cost - a[1].cost)
-    .map(([proj, data]) => {
-      const pct      = totalMes > 0 ? ((data.cost / totalMes) * 100).toFixed(1) : '0.0';
-      const barWidth = Math.max(1, Math.round(parseFloat(pct)));
-      const modelsList = Object.entries(data.models)
-        .sort((a,b) => b[1]-a[1])
-        .map(([m, c]) => `<span class="badge-model">${m.replace('claude-','')}: ${$(c)}</span>`)
-        .join(' ');
-      return `
-        <tr>
-          <td>${proj}</td>
-          <td class="text-right cost">${$(data.cost)}</td>
-          <td class="text-right">${pct}%</td>
-          <td>
-            <div class="bar-wrap"><div class="bar" style="width:${barWidth}%"></div></div>
-            <div class="models-list">${modelsList}</div>
-          </td>
-        </tr>`;
-    }).join('');
-  return `
-    <div class="month-block">
-      <div class="month-header">
-        <span class="month-name">${monthLabel(mes)}</span>
-        <span class="month-total">${$(totalMes)}</span>
-      </div>
-      <table>
-        <thead><tr><th>Proyecto</th><th class="text-right">${IS_PLAN ? 'Equiv. estimado' : 'Coste'}</th><th class="text-right">%</th><th>Detalle</th></tr></thead>
-        <tbody>${filas}</tbody>
-      </table>
-    </div>`;
-}).join('');
-
-const modelasTabla = Object.entries(byModel)
-  .sort((a,b) => b[1].cost - a[1].cost)
-  .map(([model, data]) => {
-    const pct = totalCost > 0 ? ((data.cost / totalCost) * 100).toFixed(1) : '0.0';
-    return `
-      <tr>
-        <td>${model}</td>
-        <td class="text-right cost">${$(data.cost)}</td>
-        <td class="text-right">${pct}%</td>
-        <td class="text-right">${fmt(data.input)}</td>
-        <td class="text-right">${fmt(data.cacheWrite)}</td>
-        <td class="text-right">${fmt(data.cacheRead)}</td>
-        <td class="text-right">${fmt(data.output)}</td>
+    .sort((a,b)=>b[1].cost-a[1].cost)
+    .map(([proj, d]) => {
+      const pct = totalMes > 0 ? ((d.cost/totalMes)*100).toFixed(1) : '0.0';
+      const bar = Math.max(1, Math.round(parseFloat(pct)));
+      const badges = Object.entries(d.models)
+        .sort((a,b)=>b[1]-a[1])
+        .map(([m,c])=>`<span class="badge">${m.replace('claude-','')}: ${$4(c)}</span>`)
+        .join('');
+      return `<tr>
+        <td class="td-proj">${proj}</td>
+        <td class="td-r cost">${$4(d.cost)}</td>
+        <td class="td-r dim">${pct}%</td>
+        <td><div class="bar-wrap"><div class="bar" style="width:${bar}%"></div></div>
+            <div class="badges">${badges}</div></td>
       </tr>`;
-  }).join('');
+    }).join('');
+  return `<div class="month-card">
+    <div class="month-head">
+      <span class="month-name">${monthLabel(mes)}</span>
+      <span class="month-cost">${$4(totalMes)}</span>
+    </div>
+    <table><thead><tr>
+      <th>Proyecto</th>
+      <th class="td-r">${IS_PLAN?'Equiv. estim.':'Coste'}</th>
+      <th class="td-r">%</th>
+      <th>Detalle</th>
+    </tr></thead><tbody>${filas}</tbody></table>
+  </div>`;
+}).join('') || '<p class="empty">Sin datos</p>';
 
-const mesActualKey   = meses[0] || '';
-const costeMesActual = mesActualKey
-  ? Object.values(byMonth[mesActualKey]).reduce((s,p) => s+p.cost, 0)
-  : 0;
-const now = new Date().toLocaleString('es-ES');
+// ─── HTML: Tab "Por Proyecto" ─────────────────────────────────────────────────
+const tabProyecto = (() => {
+  const sorted = Object.entries(byProject).sort((a,b)=>b[1].cost-a[1].cost);
+  if (!sorted.length) return '<p class="empty">Sin datos</p>';
+  const rows = sorted.map(([proj, d]) => {
+    const pct = totalCost > 0 ? ((d.cost/totalCost)*100).toFixed(1) : '0.0';
+    const bar = Math.max(1, Math.round(parseFloat(pct)));
+    return `<tr>
+      <td class="td-proj">${proj}</td>
+      <td class="td-r cost">${$4(d.cost)}</td>
+      <td class="td-r dim">${pct}%</td>
+      <td class="td-r dim">${fmt(d.tokens)}</td>
+      <td><div class="bar-wrap bar-wide"><div class="bar" style="width:${bar}%"></div></div></td>
+    </tr>`;
+  }).join('');
+  return `<div class="month-card">
+    <table><thead><tr>
+      <th>Proyecto</th>
+      <th class="td-r">${IS_PLAN?'Equiv. estim.':'Coste total'}</th>
+      <th class="td-r">%</th>
+      <th class="td-r">Tokens</th>
+      <th>Distribución</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+  </div>`;
+})();
+
+// ─── HTML: Tab "Por Modelo" ───────────────────────────────────────────────────
+const tabModelo = (() => {
+  const sorted = Object.entries(byModel).sort((a,b)=>b[1].cost-a[1].cost);
+  if (!sorted.length) return '<p class="empty">Sin datos</p>';
+  const rows = sorted.map(([model, d]) => {
+    const pct = totalCost > 0 ? ((d.cost/totalCost)*100).toFixed(1) : '0.0';
+    return `<tr>
+      <td>${model}</td>
+      <td class="td-r cost">${$4(d.cost)}</td>
+      <td class="td-r dim">${pct}%</td>
+      <td class="td-r dim">${fmt(d.input)}</td>
+      <td class="td-r dim">${fmt(d.cacheWrite)}</td>
+      <td class="td-r dim">${fmt(d.cacheRead)}</td>
+      <td class="td-r dim">${fmt(d.output)}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="month-card">
+    <table><thead><tr>
+      <th>Modelo</th>
+      <th class="td-r">${IS_PLAN?'Equiv. estim.':'Coste'}</th>
+      <th class="td-r">%</th>
+      <th class="td-r">Entrada</th>
+      <th class="td-r">Cache escr.</th>
+      <th class="td-r">Cache lect.</th>
+      <th class="td-r">Salida</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+  </div>`;
+})();
+
+// ─── HTML completo ────────────────────────────────────────────────────────────
+const planBanner = IS_PLAN
+  ? `<div class="plan-banner">⚠ Modo <strong>Plan</strong> — los importes mostrados son equivalentes estimados de API. Con una suscripción plana (Max/Pro) no se te cobra por tokens.</div>`
+  : '';
 
 const html = `<!DOCTYPE html>
 <html lang="es">
@@ -239,108 +280,180 @@ const html = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Claude Usage Tracker</title>
 <style>
+  :root {
+    --bg: #0d0d0d; --bg2: #161616; --bg3: #1e1e1e;
+    --border: #2a2a2a; --accent: #f0a500; --accent2: #ff6b35;
+    --blue: #7ec8e3; --green: #7ec87e; --dim: #666; --text: #ddd;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; padding: 24px; }
-  h1 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
-  .subtitle { color: #666; font-size: 0.85rem; margin-bottom: 16px; }
-  .plan-banner { background: #1a2a1a; border: 1px solid #3a6b3a; border-radius: 8px; color: #7ec87e; font-size: 0.82rem; padding: 10px 16px; margin-bottom: 20px; }
-  .mode-badge { display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle; background: ${IS_PLAN ? '#1a2a1a' : '#1a1a2a'}; color: ${IS_PLAN ? '#7ec87e' : '#7ec8e3'}; border: 1px solid ${IS_PLAN ? '#3a6b3a' : '#3a5a7a'}; }
-  .cards { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; }
-  .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 20px 24px; min-width: 180px; }
-  .card-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
-  .card-value { font-size: 1.6rem; font-weight: 700; color: #f0a500; }
-  .card-sub { font-size: 0.8rem; color: #555; margin-top: 4px; }
-  .section-title { font-size: 1rem; font-weight: 600; color: #aaa; margin-bottom: 14px; text-transform: uppercase; letter-spacing: .06em; }
-  .month-block { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; margin-bottom: 20px; overflow: hidden; }
-  .month-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; background: #222; border-bottom: 1px solid #2a2a2a; }
-  .month-name { font-weight: 600; font-size: 1rem; color: #fff; }
-  .month-total { font-weight: 700; font-size: 1.1rem; color: #f0a500; }
+  body { font-family: -apple-system,'Segoe UI',sans-serif; background: var(--bg); color: var(--text); padding: 20px 24px; font-size: 14px; }
+  /* Header */
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; flex-wrap: wrap; gap: 8px; }
+  h1 { font-size: 1.3rem; font-weight: 700; color: #fff; }
+  .mode-badge { font-size: 0.7rem; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+    background: ${IS_PLAN ? '#1a2a1a' : '#1a1a2a'}; color: ${IS_PLAN ? '#7ec87e' : '#7ec8e3'};
+    border: 1px solid ${IS_PLAN ? '#3a6b3a' : '#3a5a7a'}; }
+  .subtitle { color: var(--dim); font-size: 0.8rem; margin-bottom: 20px; }
+  /* Plan banner */
+  .plan-banner { background: #0f1f0f; border: 1px solid #3a6b3a; border-radius: 8px;
+    color: #7ec87e; font-size: 0.82rem; padding: 10px 16px; margin-bottom: 20px; line-height: 1.6; }
+  /* Cards */
+  .cards { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 28px; }
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; min-width: 150px; flex: 1; }
+  .card-label { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+  .card-value { font-size: 1.6rem; font-weight: 700; color: var(--accent); line-height: 1; }
+  .card-value.sm { font-size: 1.2rem; color: var(--blue); }
+  .card-value.green { font-size: 1.2rem; color: var(--green); }
+  .card-sub { font-size: 0.75rem; color: var(--dim); margin-top: 6px; }
+  /* Tabs */
+  .tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+  .tab-btn { background: none; border: none; color: var(--dim); font-size: 0.88rem; font-weight: 500;
+    padding: 8px 18px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    transition: color .15s, border-color .15s; }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+  /* CSV export button */
+  .toolbar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+  .btn-csv { background: var(--bg3); border: 1px solid var(--border); color: var(--dim);
+    font-size: 0.78rem; padding: 5px 14px; border-radius: 6px; cursor: pointer; transition: color .15s, border-color .15s; }
+  .btn-csv:hover { color: var(--text); border-color: #444; }
+  /* Month cards */
+  .month-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+  .month-head { display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 18px; background: var(--bg3); border-bottom: 1px solid var(--border); }
+  .month-name { font-weight: 600; color: #fff; }
+  .month-cost { font-weight: 700; font-size: 1.05rem; color: var(--accent); }
   table { width: 100%; border-collapse: collapse; }
-  th { padding: 10px 16px; text-align: left; font-size: 0.75rem; color: #555; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid #222; }
-  td { padding: 10px 16px; font-size: 0.85rem; border-bottom: 1px solid #1e1e1e; vertical-align: top; }
+  th { padding: 9px 16px; text-align: left; font-size: 0.72rem; color: var(--dim); text-transform: uppercase;
+    letter-spacing: .05em; border-bottom: 1px solid #1e1e1e; white-space: nowrap; }
+  td { padding: 9px 16px; font-size: 0.83rem; border-bottom: 1px solid #1a1a1a; vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
-  tr:hover td { background: #202020; }
-  .text-right { text-align: right; }
-  .cost { color: #f0a500; font-weight: 600; font-family: monospace; }
-  .bar-wrap { background: #2a2a2a; border-radius: 4px; height: 6px; width: 100%; max-width: 200px; margin-bottom: 6px; }
-  .bar { background: linear-gradient(90deg, #f0a500, #ff6b35); border-radius: 4px; height: 6px; }
-  .models-list { display: flex; flex-wrap: wrap; gap: 4px; }
-  .badge-model { font-size: 0.72rem; background: #2a2a2a; color: #888; padding: 2px 7px; border-radius: 10px; }
-  .section { margin-bottom: 36px; }
-  .updated { font-size: 0.78rem; color: #444; margin-top: 32px; text-align: center; }
-  @media (max-width: 600px) { .cards { flex-direction: column; } }
+  tr:hover td { background: #1a1a1a; }
+  .td-r { text-align: right; }
+  .td-proj { max-width: 280px; word-break: break-word; }
+  .cost { color: var(--accent); font-weight: 600; font-family: monospace; }
+  .dim { color: var(--dim); }
+  .bar-wrap { background: #252525; border-radius: 3px; height: 5px; max-width: 180px; width: 100%; margin-bottom: 5px; }
+  .bar-wide { max-width: 260px; }
+  .bar { background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 3px; height: 5px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 3px; }
+  .badge { font-size: 0.68rem; background: #252525; color: #777; padding: 1px 6px; border-radius: 8px; }
+  .empty { color: var(--dim); padding: 20px; }
+  /* Footer */
+  .footer { font-size: 0.75rem; color: #333; margin-top: 32px; text-align: center; }
+  @media (max-width: 600px) { .cards { flex-direction: column; } .tab-btn { padding: 8px 12px; } }
 </style>
 </head>
 <body>
 
-<h1>Claude Usage Tracker <span class="mode-badge">${IS_PLAN ? 'PLAN' : 'API'}</span></h1>
+<div class="header">
+  <h1>Claude Usage Tracker</h1>
+  <span class="mode-badge">${IS_PLAN ? 'PLAN' : 'API'}</span>
+</div>
 <p class="subtitle">Actualizado: ${now}</p>
 
 ${planBanner}
 
+<!-- Cards resumen -->
 <div class="cards">
   <div class="card">
     <div class="card-label">${IS_PLAN ? 'Equiv. total estimado' : 'Coste total'}</div>
-    <div class="card-value">${$(totalCost)}</div>
-    <div class="card-sub">${projectFolders.length} proyectos</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Tokens entrada</div>
-    <div class="card-value" style="font-size:1.2rem;color:#7ec8e3">${fmt(totalTok.input)}</div>
-    <div class="card-sub">Cache escritura: ${fmt(totalTok.cacheWrite)}</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Cache leída</div>
-    <div class="card-value" style="font-size:1.2rem;color:#7ec8e3">${fmt(totalTok.cacheRead)}</div>
-    <div class="card-sub">Tokens salida: ${fmt(totalTok.output)}</div>
+    <div class="card-value">${$4(totalCost)}</div>
+    <div class="card-sub">${projectFolders.length} proyectos · ${meses.length} meses</div>
   </div>
   <div class="card">
     <div class="card-label">Mes actual</div>
-    <div class="card-value" style="font-size:1.2rem">
-      ${mesActualKey ? $(costeMesActual) : '$0.0000'}
-    </div>
-    <div class="card-sub">${mesActualKey ? monthLabel(mesActualKey) : '—'}</div>
+    <div class="card-value sm">${mesActual ? $4(costeMes) : '-'}</div>
+    <div class="card-sub">${mesActual ? monthLabel(mesActual) : '—'}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Hoy</div>
+    <div class="card-value green">${$4(todayCost)}</div>
+    <div class="card-sub">in: ${fmt(todayTok.input)} · out: ${fmt(todayTok.output)}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Tokens entrada (total)</div>
+    <div class="card-value sm">${fmt(totalTok.input)}</div>
+    <div class="card-sub">Cache escr: ${fmt(totalTok.cacheWrite)} · lect: ${fmt(totalTok.cacheRead)}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Tokens salida (total)</div>
+    <div class="card-value sm">${fmt(totalTok.output)}</div>
+    <div class="card-sub"> </div>
   </div>
 </div>
 
-<div class="section">
-  <div class="section-title">Por mes y proyecto</div>
-  ${mesesTabla || '<p style="color:#555">Sin datos</p>'}
+<!-- Tabs -->
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="showTab('mes',this)">Por Mes</button>
+  <button class="tab-btn"        onclick="showTab('proyecto',this)">Por Proyecto</button>
+  <button class="tab-btn"        onclick="showTab('modelo',this)">Por Modelo</button>
 </div>
 
-<div class="section">
-  <div class="section-title">Por modelo</div>
-  <div class="month-block">
-    <table>
-      <thead>
-        <tr>
-          <th>Modelo</th>
-          <th class="text-right">${IS_PLAN ? 'Equiv. estimado' : 'Coste'}</th>
-          <th class="text-right">%</th>
-          <th class="text-right">Entrada</th>
-          <th class="text-right">Cache escr.</th>
-          <th class="text-right">Cache lect.</th>
-          <th class="text-right">Salida</th>
-        </tr>
-      </thead>
-      <tbody>${modelasTabla || '<tr><td colspan="7" style="color:#555;text-align:center">Sin datos</td></tr>'}</tbody>
-    </table>
-  </div>
+<!-- Export CSV -->
+<div class="toolbar">
+  <button class="btn-csv" onclick="exportCSV()">⬇ Exportar CSV</button>
 </div>
 
-<p class="updated">Datos leídos desde ${projectsDir.replace(/\\/g,'/')}</p>
+<!-- Tab Mes -->
+<div id="tab-mes" class="tab-pane active">
+  ${tabMes}
+</div>
 
+<!-- Tab Proyecto -->
+<div id="tab-proyecto" class="tab-pane">
+  ${tabProyecto}
+</div>
+
+<!-- Tab Modelo -->
+<div id="tab-modelo" class="tab-pane">
+  ${tabModelo}
+</div>
+
+<p class="footer">Datos leídos desde ${projectsDir.replace(/\\/g,'/')}</p>
+
+<script>
+function showTab(name, btn) {
+  document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+// Datos para CSV
+const CSV_DATA = ${JSON.stringify({ rows: csvRows, modelos: csvModelos })};
+
+function exportCSV() {
+  const all = [
+    ['=== POR MES Y PROYECTO ==='],
+    ...CSV_DATA.rows,
+    [],
+    ['=== POR MODELO ==='],
+    ...CSV_DATA.modelos
+  ];
+  const csv = all.map(r => r.map(c => '"' + String(c ?? '').replace(/"/g,'""') + '"').join(',')).join('\\n');
+  const blob = new Blob(['\\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'claude-usage-${new Date().toISOString().slice(0,10)}.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+</script>
 </body>
 </html>`;
 
 // ─── Guardar y abrir ──────────────────────────────────────────────────────────
 const outFile = path.join(os.tmpdir(), 'claude-usage-report.html');
 fs.writeFileSync(outFile, html, 'utf8');
-console.log(`  Reporte generado: ${outFile}`);
+console.log(`\n  Reporte: ${outFile}`);
+console.log(`  Modo:    ${IS_PLAN ? 'Plan (equiv. estimado)' : 'API (coste real)'}\n`);
 
 try {
   execSync(`start "" "${outFile}"`, { stdio: 'ignore', shell: true });
-  console.log('  Abriendo en el navegador...\n');
 } catch {
-  console.log(`  Abre manualmente: ${outFile}\n`);
+  console.log(`  Abre manualmente: ${outFile}`);
 }
