@@ -2,18 +2,30 @@
   "name": "@diegoalvarezf/claude-usage-tracker",
   "version": "1.1.0",
   "description": "Monitor de uso y costes de Claude Code para Windows — bandeja del sistema + reporte HTML con tabs",
-  "keywords": ["claude", "anthropic", "claude-code", "usage", "tracker", "windows", "cost"],
+  "keywords": [
+    "claude",
+    "anthropic",
+    "claude-code",
+    "usage",
+    "tracker",
+    "windows",
+    "cost"
+  ],
   "author": "diegoalvarezf",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/diegoalvarezf/claude-usage-tracker-windows.git"
+    "url": "git+https://github.com/diegoalvarezf/claude-usage-tracker-windows.git"
   },
-  "os": ["win32"],
-  "engines": { "node": ">=16.0.0" },
+  "os": [
+    "win32"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
   "bin": {
-    "claude-usage":      "./claude-usage.js",
-    "claude-usage-tray": "./tray-launcher.js"
+    "claude-usage": "claude-usage.js",
+    "claude-usage-tray": "tray-launcher.js"
   },
   "scripts": {
     "postinstall": "node postinstall.js"
