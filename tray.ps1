@@ -215,30 +215,39 @@ function script:Open-Report {
 
 # ─── Actualizar display (tooltip + labels del menú) ──────────────────────────
 function script:Update-Display {
+    $isPlan = ($script:config.mode -eq "plan")
+    $prefix = if ($isPlan) { "~" } else { "" }
+
     try {
-        $script:data  = script:Get-UsageData
-        $isPlan = ($script:config.mode -eq "plan")
-        $prefix = if ($isPlan) { "~" } else { "" }
+        $script:data = script:Get-UsageData
+    } catch {
+        $script:data = $null
+    }
 
-        if ($null -eq $script:data) {
-            $script:tray.Text = "Claude: sin datos en ~/.claude/projects"
-            return
-        }
+    if ($null -eq $script:data) {
+        $script:tray.Text = "Claude Cost"
+        if ($script:itemMes)   { $script:itemMes.Text   = "  Este mes:   sin datos" }
+        if ($script:itemHoy)   { $script:itemHoy.Text   = "  Hoy:        sin datos" }
+        if ($script:itemTotal) { $script:itemTotal.Text = "  Total:      sin datos" }
+        return
+    }
 
+    try {
         $mes   = [double]$script:data["CurrentMonth"]
         $hoy   = [double]$script:data["Today"]
         $total = [double]$script:data["Total"]
 
-        # Tooltip (Windows limita a 63 chars)
         $tip = "Claude $prefix`$$([math]::Round($mes,2))/mes  $prefix`$$([math]::Round($total,2)) total"
         $script:tray.Text = if ($tip.Length -gt 63) { $tip.Substring(0, 63) } else { $tip }
 
-        # Labels del menú
         if ($script:itemMes)   { $script:itemMes.Text   = "  Este mes:   $prefix`$$('{0:F4}' -f $mes)" }
         if ($script:itemHoy)   { $script:itemHoy.Text   = "  Hoy:        $prefix`$$('{0:F4}' -f $hoy)" }
         if ($script:itemTotal) { $script:itemTotal.Text = "  Total:      $prefix`$$('{0:F4}' -f $total)" }
     } catch {
         $script:tray.Text = "Claude Cost"
+        if ($script:itemMes)   { $script:itemMes.Text   = "  Este mes:   error" }
+        if ($script:itemHoy)   { $script:itemHoy.Text   = "  Hoy:        error" }
+        if ($script:itemTotal) { $script:itemTotal.Text = "  Total:      error" }
     }
 }
 
