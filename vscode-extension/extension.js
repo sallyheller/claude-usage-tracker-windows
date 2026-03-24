@@ -193,66 +193,99 @@ function generateHtml(data, isPlan) {
     : 0;
   const now = new Date().toLocaleString('es-ES');
 
-  const modeBadgeColor = isPlan ? '#7ec87e' : '#7ec8e3';
-  const modeBadgeBg    = isPlan ? '#1a2a1a' : '#1a1a2a';
-  const modeBadgeBorder= isPlan ? '#3a6b3a' : '#3a5a7a';
-
-  return `<!DOCTYPE html><html lang="es"><head>
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Claude Usage Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box;margin:0;padding:0;image-rendering:pixelated}
-body{font-family:'Press Start 2P',monospace;background:#0a0500;color:#ff7900;padding:24px;font-size:9px;line-height:2;background-image:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.25) 2px,rgba(0,0,0,0.25) 4px)}
-h1{font-size:13px;color:#ff7900;margin-bottom:6px;text-shadow:3px 3px #4d2400}
-.subtitle{color:#7a3800;font-size:7px;margin-bottom:16px}
-.plan-banner{background:#0d1a0d;border:2px solid #3a6b3a;color:#7ec87e;font-size:7px;padding:10px 14px;margin-bottom:18px;line-height:1.8}
-.mode-badge{display:inline-block;font-size:6px;padding:2px 6px;border:1px solid ${modeBadgeBorder};background:${modeBadgeBg};color:${modeBadgeColor};margin-left:8px;vertical-align:middle}
-.cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:32px}
-.card{background:#110800;border:2px solid #ff7900;box-shadow:4px 4px 0 #4d2400;padding:16px 18px;min-width:160px}
-.card-label{font-size:6px;color:#994800;margin-bottom:8px}
-.card-value{font-size:15px;color:#ffffff;text-shadow:2px 2px #4d2400}
-.card-value.blue{color:#ffb347;text-shadow:2px 2px #4d2400}
-.card-sub{font-size:6px;color:#5c2d00;margin-top:6px}
-.section-title{font-size:8px;color:#ff7900;margin-bottom:14px;border-bottom:1px solid #4d2400;padding-bottom:6px}
-.month-block{border:2px solid #ff7900;box-shadow:4px 4px 0 #4d2400;margin-bottom:20px;background:#080300}
-.month-header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#2a1400;border-bottom:2px solid #ff7900}
-.month-name{font-size:9px;color:#ff7900}
-.month-total{font-size:11px;color:#ffffff;text-shadow:1px 1px #4d2400}
-table{width:100%;border-collapse:collapse}
-th{padding:8px 12px;text-align:left;font-size:6px;color:#7a3800;border-bottom:1px solid #2a1400}
-td{padding:8px 12px;font-size:7px;border-bottom:1px dotted #1a0900;vertical-align:top}
-tr:last-child td{border-bottom:none}
-tr:hover td{background:#1a0900}
-.right{text-align:right}
-.cost{color:#ffffff}
-.bar-wrap{background:#0d0500;height:8px;width:100%;max-width:150px;margin-bottom:6px;border:1px solid #4d2400}
-.bar{background:#ff7900;height:100%}
-.models-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}
-.badge-model{font-size:5px;border:1px solid #5c2d00;color:#7a3800;padding:2px 4px}
-.section{margin-bottom:36px}
-.updated{font-size:6px;color:#4d2400;margin-top:32px;text-align:center}
-.blink{animation:blink 1s step-end infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
-</style></head><body>
-<h1>&gt; CLAUDE USAGE TRACKER_<span class="blink">█</span> <span class="mode-badge">${isPlan ? 'PLAN' : 'API'}</span></h1>
-<p class="subtitle">// ACTUALIZADO: ${now}</p>
+  :root{--orange:#FF6600;--orange2:#FF8533;--bg:#0C0C0C;--bg2:#141414;--bg3:#1A1A1A;--bg4:#212121;--border:#2C2C2C;--text:#E8E8E8;--dim:#5A5A5A;--dim2:#888}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+  .topbar{position:sticky;top:0;z-index:100;background:var(--bg2);border-bottom:1px solid var(--border);padding:0 32px;height:56px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .topbar-left{display:flex;align-items:center;gap:12px}
+  .brand-dot{width:28px;height:28px;border-radius:50%;background:var(--orange);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#fff;flex-shrink:0}
+  .topbar-title{font-weight:600;font-size:15px;color:#fff}
+  .topbar-sub{font-size:12px;color:var(--dim2);margin-top:1px}
+  .topbar-right{display:flex;align-items:center;gap:10px}
+  .mode-pill{font-size:11px;font-weight:600;letter-spacing:.04em;padding:3px 10px;border-radius:20px;background:rgba(255,102,0,.12);color:var(--orange);border:1px solid rgba(255,102,0,.3)}
+  .content{padding:28px 32px 48px;max-width:1100px;margin:0 auto}
+  .plan-banner{background:rgba(255,102,0,.07);border:1px solid rgba(255,102,0,.25);border-radius:8px;color:var(--orange2);font-size:13px;padding:10px 16px;margin-bottom:24px;line-height:1.6}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:32px}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px 20px 16px}
+  .card.featured{border-top:3px solid var(--orange);padding-top:17px}
+  .card-label{font-size:11px;font-weight:500;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+  .card-value{font-size:1.65rem;font-weight:700;color:var(--orange);line-height:1;font-variant-numeric:tabular-nums}
+  .card-value.secondary{font-size:1.3rem;color:var(--text)}
+  .card-sub{font-size:11px;color:var(--dim);margin-top:8px}
+  .tab-bar{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px}
+  .tab-btn{font-family:inherit;background:none;border:none;border-bottom:2px solid transparent;color:var(--dim2);font-size:13px;font-weight:500;padding:10px 20px;cursor:pointer;margin-bottom:-1px;transition:color .15s,border-color .15s}
+  .tab-btn:hover{color:var(--text)}
+  .tab-btn.active{color:var(--orange);border-bottom-color:var(--orange)}
+  .tab-pane{display:none}
+  .tab-pane.active{display:block}
+  .month-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;overflow:hidden}
+  .month-head{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;background:var(--bg3);border-bottom:1px solid var(--border)}
+  .month-name{font-weight:600;font-size:14px;color:#fff}
+  .month-cost{font-weight:700;font-size:15px;color:var(--orange);font-variant-numeric:tabular-nums}
+  table{width:100%;border-collapse:collapse}
+  th{padding:9px 18px;text-align:left;font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--bg3)}
+  td{padding:9px 18px;font-size:13px;border-bottom:1px solid #1C1C1C;vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .td-r{text-align:right}
+  .td-proj{max-width:280px;word-break:break-word}
+  .cost{color:var(--orange);font-weight:600;font-variant-numeric:tabular-nums}
+  .dim{color:var(--dim2)}
+  .bar-wrap{background:#252525;border-radius:3px;height:4px;max-width:180px;width:100%;margin-bottom:6px}
+  .bar-wide{max-width:260px}
+  .bar{background:linear-gradient(90deg,var(--orange),var(--orange2));border-radius:3px;height:4px}
+  .badges{display:flex;flex-wrap:wrap;gap:3px}
+  .badge{font-size:11px;background:#252525;color:var(--dim2);padding:1px 7px;border-radius:8px}
+  .empty{color:var(--dim);padding:24px 20px;font-size:13px}
+  .footer{font-size:11px;color:#2E2E2E;margin-top:40px;text-align:center}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="brand-dot">O</div>
+    <div>
+      <div class="topbar-title">Claude Usage Tracker</div>
+      <div class="topbar-sub">Orange &mdash; Monitorizacion de uso &middot; ${now}</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span class="mode-pill">${isPlan ? 'PLAN' : 'API'}</span>
+  </div>
+</header>
+<main class="content">
 ${planBanner}
 <div class="cards">
-  <div class="card"><div class="card-label">&gt; ${isPlan ? 'EQUIV. ESTIMADO TOTAL' : 'COSTE TOTAL'}</div><div class="card-value">${$(totalCost)}</div><div class="card-sub">${projectFolders.length} PROYECTOS</div></div>
-  <div class="card"><div class="card-label">&gt; TOKENS ENTRADA</div><div class="card-value blue" style="font-size:12px">${fmt(totalTok.input)}</div><div class="card-sub">CACHE ESCR: ${fmt(totalTok.cacheWrite)}</div></div>
-  <div class="card"><div class="card-label">&gt; CACHE LEIDA</div><div class="card-value blue" style="font-size:12px">${fmt(totalTok.cacheRead)}</div><div class="card-sub">TOK SALIDA: ${fmt(totalTok.output)}</div></div>
-  <div class="card"><div class="card-label">&gt; MES ACTUAL</div><div class="card-value" style="font-size:12px">${$(costeMesActual)}</div><div class="card-sub">${mesActual ? monthLabel(mesActual).toUpperCase() : '---'}</div></div>
+  <div class="card featured"><div class="card-label">${isPlan ? 'Equiv. total estimado' : 'Coste total'}</div><div class="card-value">${$(totalCost)}</div><div class="card-sub">${projectFolders.length} proyectos</div></div>
+  <div class="card"><div class="card-label">Mes actual</div><div class="card-value secondary">${$(costeMesActual)}</div><div class="card-sub">${mesActual ? monthLabel(mesActual) : '&mdash;'}</div></div>
+  <div class="card"><div class="card-label">Tokens entrada</div><div class="card-value secondary">${fmt(totalTok.input)}</div><div class="card-sub">Cache escr: ${fmt(totalTok.cacheWrite)}</div></div>
+  <div class="card"><div class="card-label">Tokens salida</div><div class="card-value secondary">${fmt(totalTok.output)}</div><div class="card-sub">Cache lect: ${fmt(totalTok.cacheRead)}</div></div>
 </div>
-<div class="section"><div class="section-title">// POR MES Y PROYECTO</div>${mesesTabla || '<p style="color:#4d2400">SIN DATOS</p>'}</div>
-<div class="section"><div class="section-title">// POR MODELO</div>
-  <div class="month-block"><table>
-    <thead><tr><th>MODELO</th><th class="right">${isPlan ? 'EQUIV.ESTIM.' : 'COSTE'}</th><th class="right">%</th><th class="right">ENTRADA</th><th class="right">C.ESCR</th><th class="right">C.LECT</th><th class="right">SALIDA</th></tr></thead>
-    <tbody>${modelasTabla || '<tr><td colspan="7" style="color:#4d2400;text-align:center">SIN DATOS</td></tr>'}</tbody>
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="showTab('mes',this)">Por Mes</button>
+  <button class="tab-btn" onclick="showTab('modelo',this)">Por Modelo</button>
+</div>
+<div id="tab-mes" class="tab-pane active">${mesesTabla || '<p class="empty">Sin datos</p>'}</div>
+<div id="tab-modelo" class="tab-pane">
+  <div class="month-card"><table>
+    <thead><tr><th>Modelo</th><th class="td-r">${isPlan ? 'Equiv. estim.' : 'Coste'}</th><th class="td-r">%</th><th class="td-r">Entrada</th><th class="td-r">Cache escr.</th><th class="td-r">Cache lect.</th><th class="td-r">Salida</th></tr></thead>
+    <tbody>${modelasTabla || '<tr><td colspan="7" class="empty">Sin datos</td></tr>'}</tbody>
   </table></div>
 </div>
-<p class="updated">// DATA PATH: ${projectsDir.replace(/\\/g,'/')}</p>
+<p class="footer">Datos desde ${projectsDir.replace(/\\/g,'/')}</p>
+</main>
+<script>
+function showTab(name,btn){document.querySelectorAll('.tab-pane').forEach(el=>el.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(el=>el.classList.remove('active'));document.getElementById('tab-'+name).classList.add('active');btn.classList.add('active')}
+</script>
 </body></html>`;
 }
 
@@ -313,7 +346,7 @@ function updateStatusBar() {
 
 function openReport() {
   const outFile = path.join(os.tmpdir(), 'claude-usage-report.html');
-  try { execSync(`start "" "${outFile}"`, { stdio: 'ignore', shell: true }); }
+  try { execSync(`rundll32 url.dll,FileProtocolHandler "${outFile}"`, { stdio: 'ignore', shell: true }); }
   catch { vscode.window.showErrorMessage(`No se pudo abrir: ${outFile}`); }
 }
 
