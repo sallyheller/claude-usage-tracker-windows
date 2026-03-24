@@ -15,7 +15,7 @@ const PRICING = {
   'claude-haiku-4-5':  { input: 0.80,  cacheWrite: 1.00,  cacheRead: 0.08, output: 4.00  },
   'claude-haiku-3-5':  { input: 0.80,  cacheWrite: 1.00,  cacheRead: 0.08, output: 4.00  },
   'claude-haiku-3':    { input: 0.25,  cacheWrite: 0.30,  cacheRead: 0.03, output: 1.25  },
-  default:             { input: 3.00, cacheWrite: 3.75, cacheRead: 0.30, output: 15.00 },
+  default:             { input: 3.00,  cacheWrite: 3.75,  cacheRead: 0.30, output: 15.00 },
 };
 
 function getPricing(model) {
@@ -33,7 +33,7 @@ function calcCost(usage, model) {
   const p = getPricing(model);
   const M = 1_000_000;
   return (
-    ((usage.input_tokens                || 0) / M) * p.input     +
+    ((usage.input_tokens                || 0) / M) * p.input      +
     ((usage.cache_creation_input_tokens || 0) / M) * p.cacheWrite +
     ((usage.cache_read_input_tokens     || 0) / M) * p.cacheRead  +
     ((usage.output_tokens               || 0) / M) * p.output
@@ -41,10 +41,9 @@ function calcCost(usage, model) {
 }
 
 function cleanProjectName(folder) {
-  // Extrae solo lo que va después del último "DESARROLLO-NNN-..."
-  const match = folder.match(/.*DESARROLLO-+(\d[^/\\]*)$/i);
-  if (match) return match[1];
-  return 'home';
+  const parts = folder.split('---').filter(Boolean);
+  const last  = parts[parts.length - 1] || folder;
+  return last.replace(/^[A-Z]--[^-]+-[^-]+-/i, '') || last;
 }
 
 function monthLabel(m) {
@@ -54,7 +53,14 @@ function monthLabel(m) {
 }
 
 const fmt = n => n >= 1e6 ? `${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `${(n/1e3).toFixed(1)}K` : String(n);
-const $   = n => `$${n.toFixed(4)}`;
+
+function fmtCost(n, isPlan) {
+  return isPlan ? `~$${n.toFixed(4)}` : `$${n.toFixed(4)}`;
+}
+
+function fmtCost2(n, isPlan) {
+  return isPlan ? `~$${n.toFixed(2)}` : `$${n.toFixed(2)}`;
+}
 
 // ─── Parseo de datos ──────────────────────────────────────────────────────────
 function parseUsage() {
@@ -91,8 +97,9 @@ function parseUsage() {
         const usage = entry.message && entry.message.usage;
         if (!usage) continue;
 
-        const model     = (entry.message && entry.message.model) || 'desconocido';
-        const month     = (entry.timestamp || '').slice(0, 7);
+        const model = (entry.message && entry.message.model) || 'unknown';
+        if (model === '<synthetic>') continue;
+        const month = (entry.timestamp || '').slice(0, 7);
         if (!month) continue;
 
         const cost = calcCost(usage, model);
@@ -103,7 +110,7 @@ function parseUsage() {
         totalTok.cacheRead  += usage.cache_read_input_tokens     || 0;
         totalTok.output     += usage.output_tokens               || 0;
 
-        if (!byMonth[month]) byMonth[month] = {};
+        if (!byMonth[month])              byMonth[month] = {};
         if (!byMonth[month][projectName]) byMonth[month][projectName] = { cost: 0, models: {} };
         byMonth[month][projectName].cost += cost;
         byMonth[month][projectName].models[model] = (byMonth[month][projectName].models[model] || 0) + cost;
@@ -125,9 +132,14 @@ function parseUsage() {
 }
 
 // ─── Generación del HTML ──────────────────────────────────────────────────────
-function generateHtml(data) {
+function generateHtml(data, isPlan) {
   const { byMonth, byModel, totalCost, totalTok, projectFolders, projectsDir } = data;
   const meses = Object.keys(byMonth).sort().reverse();
+  const $ = n => fmtCost(n, isPlan);
+
+  const planBanner = isPlan
+    ? `<div class="plan-banner">Modo <strong>Plan</strong> — los costes mostrados son equivalentes estimados de API, no cargos reales. Tienes una suscripción de tarifa plana.</div>`
+    : '';
 
   const mesesTabla = meses.map(mes => {
     const proyectos = byMonth[mes];
@@ -155,7 +167,7 @@ function generateHtml(data) {
           <span class="month-name">${monthLabel(mes)}</span>
           <span class="month-total">${$(totalMes)}</span>
         </div>
-        <table><thead><tr><th>Proyecto</th><th class="right">Coste</th><th class="right">%</th><th>Detalle</th></tr></thead>
+        <table><thead><tr><th>Proyecto</th><th class="right">${isPlan ? 'Equiv. estimado' : 'Coste'}</th><th class="right">%</th><th>Detalle</th></tr></thead>
         <tbody>${filas}</tbody></table>
       </div>`;
   }).join('');
@@ -175,11 +187,15 @@ function generateHtml(data) {
       </tr>`;
     }).join('');
 
-  const mesActual     = meses[0] || '';
+  const mesActual      = meses[0] || '';
   const costeMesActual = mesActual
     ? Object.values(byMonth[mesActual]).reduce((s,p) => s+p.cost, 0)
     : 0;
   const now = new Date().toLocaleString('es-ES');
+
+  const modeBadgeColor = isPlan ? '#7ec87e' : '#7ec8e3';
+  const modeBadgeBg    = isPlan ? '#1a2a1a' : '#1a1a2a';
+  const modeBadgeBorder= isPlan ? '#3a6b3a' : '#3a5a7a';
 
   return `<!DOCTYPE html><html lang="es"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -190,7 +206,9 @@ function generateHtml(data) {
 *{box-sizing:border-box;margin:0;padding:0;image-rendering:pixelated}
 body{font-family:'Press Start 2P',monospace;background:#0a0500;color:#ff7900;padding:24px;font-size:9px;line-height:2;background-image:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.25) 2px,rgba(0,0,0,0.25) 4px)}
 h1{font-size:13px;color:#ff7900;margin-bottom:6px;text-shadow:3px 3px #4d2400}
-.subtitle{color:#7a3800;font-size:7px;margin-bottom:28px}
+.subtitle{color:#7a3800;font-size:7px;margin-bottom:16px}
+.plan-banner{background:#0d1a0d;border:2px solid #3a6b3a;color:#7ec87e;font-size:7px;padding:10px 14px;margin-bottom:18px;line-height:1.8}
+.mode-badge{display:inline-block;font-size:6px;padding:2px 6px;border:1px solid ${modeBadgeBorder};background:${modeBadgeBg};color:${modeBadgeColor};margin-left:8px;vertical-align:middle}
 .cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:32px}
 .card{background:#110800;border:2px solid #ff7900;box-shadow:4px 4px 0 #4d2400;padding:16px 18px;min-width:160px}
 .card-label{font-size:6px;color:#994800;margin-bottom:8px}
@@ -218,19 +236,20 @@ tr:hover td{background:#1a0900}
 .blink{animation:blink 1s step-end infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
 </style></head><body>
-<h1>&gt; CLAUDE USAGE TRACKER_<span class="blink">█</span></h1>
+<h1>&gt; CLAUDE USAGE TRACKER_<span class="blink">█</span> <span class="mode-badge">${isPlan ? 'PLAN' : 'API'}</span></h1>
 <p class="subtitle">// ACTUALIZADO: ${now}</p>
+${planBanner}
 <div class="cards">
-  <div class="card"><div class="card-label">&gt; COSTE TOTAL</div><div class="card-value">${$(totalCost)}</div><div class="card-sub">${projectFolders.length} PROYECTOS</div></div>
+  <div class="card"><div class="card-label">&gt; ${isPlan ? 'EQUIV. ESTIMADO TOTAL' : 'COSTE TOTAL'}</div><div class="card-value">${$(totalCost)}</div><div class="card-sub">${projectFolders.length} PROYECTOS</div></div>
   <div class="card"><div class="card-label">&gt; TOKENS ENTRADA</div><div class="card-value blue" style="font-size:12px">${fmt(totalTok.input)}</div><div class="card-sub">CACHE ESCR: ${fmt(totalTok.cacheWrite)}</div></div>
   <div class="card"><div class="card-label">&gt; CACHE LEIDA</div><div class="card-value blue" style="font-size:12px">${fmt(totalTok.cacheRead)}</div><div class="card-sub">TOK SALIDA: ${fmt(totalTok.output)}</div></div>
   <div class="card"><div class="card-label">&gt; MES ACTUAL</div><div class="card-value" style="font-size:12px">${$(costeMesActual)}</div><div class="card-sub">${mesActual ? monthLabel(mesActual).toUpperCase() : '---'}</div></div>
 </div>
-<div class="section"><div class="section-title">// POR MES Y PROYECTO</div>${mesesTabla || '<p style="color:#003b00">SIN DATOS</p>'}</div>
+<div class="section"><div class="section-title">// POR MES Y PROYECTO</div>${mesesTabla || '<p style="color:#4d2400">SIN DATOS</p>'}</div>
 <div class="section"><div class="section-title">// POR MODELO</div>
   <div class="month-block"><table>
-    <thead><tr><th>MODELO</th><th class="right">COSTE</th><th class="right">%</th><th class="right">ENTRADA</th><th class="right">C.ESCR</th><th class="right">C.LECT</th><th class="right">SALIDA</th></tr></thead>
-    <tbody>${modelasTabla || '<tr><td colspan="7" style="color:#003b00;text-align:center">SIN DATOS</td></tr>'}</tbody>
+    <thead><tr><th>MODELO</th><th class="right">${isPlan ? 'EQUIV.ESTIM.' : 'COSTE'}</th><th class="right">%</th><th class="right">ENTRADA</th><th class="right">C.ESCR</th><th class="right">C.LECT</th><th class="right">SALIDA</th></tr></thead>
+    <tbody>${modelasTabla || '<tr><td colspan="7" style="color:#4d2400;text-align:center">SIN DATOS</td></tr>'}</tbody>
   </table></div>
 </div>
 <p class="updated">// DATA PATH: ${projectsDir.replace(/\\/g,'/')}</p>
@@ -241,11 +260,20 @@ tr:hover td{background:#1a0900}
 let statusBarItem;
 let refreshTimer;
 
+function getConfig() {
+  const cfg = vscode.workspace.getConfiguration('claudeUsage');
+  return {
+    isPlan:          cfg.get('billingMode', 'api') === 'plan',
+    refreshInterval: cfg.get('refreshIntervalSeconds', 60) * 1000,
+  };
+}
+
 function updateStatusBar() {
+  const { isPlan } = getConfig();
   try {
     const data = parseUsage();
     if (!data) {
-      statusBarItem.text = '$(warning) Claude: sin datos';
+      statusBarItem.text    = '$(warning) Claude: sin datos';
       statusBarItem.tooltip = 'No se encontró ~/.claude/projects/';
       return;
     }
@@ -256,24 +284,26 @@ function updateStatusBar() {
       ? Object.values(data.byMonth[mesActual]).reduce((s,p) => s+p.cost, 0)
       : 0;
 
-    statusBarItem.text    = `$(credit-card) $${costeMes.toFixed(2)} / $${data.totalCost.toFixed(2)}`;
+    const prefix = isPlan ? '~' : '';
+    statusBarItem.text = `$(credit-card) ${prefix}$${costeMes.toFixed(2)} / ${prefix}$${data.totalCost.toFixed(2)}`;
     statusBarItem.tooltip = [
       `Claude Code — Uso y costes`,
+      `Modo: ${isPlan ? 'Plan (tarifa plana)' : 'API (por tokens)'}`,
       ``,
-      `Mes actual (${mesActual ? monthLabel(mesActual) : '—'}): $${costeMes.toFixed(4)}`,
-      `Total acumulado: $${data.totalCost.toFixed(4)}`,
+      `Mes actual (${mesActual ? monthLabel(mesActual) : '—'}): ${fmtCost2(costeMes, isPlan)}`,
+      `Total acumulado: ${fmtCost2(data.totalCost, isPlan)}`,
       ``,
       `Tokens entrada:   ${fmt(data.totalTok.input)}`,
       `Cache escritura:  ${fmt(data.totalTok.cacheWrite)}`,
       `Cache lectura:    ${fmt(data.totalTok.cacheRead)}`,
       `Tokens salida:    ${fmt(data.totalTok.output)}`,
       ``,
+      isPlan ? '⚠ Costes son equivalentes estimados (no cargos reales)' : '',
       `Clic para abrir el reporte completo`,
-    ].join('\n');
+    ].filter(l => l !== '').join('\n');
 
-    // Guarda el HTML para que el comando pueda abrirlo
     const outFile = path.join(os.tmpdir(), 'claude-usage-report.html');
-    fs.writeFileSync(outFile, generateHtml(data), 'utf8');
+    fs.writeFileSync(outFile, generateHtml(data, isPlan), 'utf8');
 
   } catch (err) {
     statusBarItem.text    = '$(warning) Claude: error';
@@ -287,6 +317,13 @@ function openReport() {
   catch { vscode.window.showErrorMessage(`No se pudo abrir: ${outFile}`); }
 }
 
+function scheduleRefresh(ctx) {
+  const { refreshInterval } = getConfig();
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(updateStatusBar, refreshInterval);
+  ctx.subscriptions.push({ dispose: () => clearInterval(refreshTimer) });
+}
+
 function activate(context) {
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'claudeUsage.openReport';
@@ -296,12 +333,16 @@ function activate(context) {
     statusBarItem,
     vscode.commands.registerCommand('claudeUsage.openReport', openReport),
     vscode.commands.registerCommand('claudeUsage.refresh',    updateStatusBar),
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('claudeUsage')) {
+        updateStatusBar();
+        scheduleRefresh(context);
+      }
+    }),
   );
 
-  // Primera carga y refresco cada minuto
   updateStatusBar();
-  refreshTimer = setInterval(updateStatusBar, 60 * 1000);
-  context.subscriptions.push({ dispose: () => clearInterval(refreshTimer) });
+  scheduleRefresh(context);
 }
 
 function deactivate() {

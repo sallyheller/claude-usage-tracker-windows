@@ -1,10 +1,10 @@
 {
   "name": "claude-usage-tracker",
   "displayName": "Claude Usage Tracker",
-  "description": "Muestra el coste de Claude Code en la barra de estado de VS Code",
-  "version": "1.0.0",
+  "description": "Muestra el uso y costes de Claude Code en la barra de estado de VS Code",
+  "version": "1.1.0",
   "publisher": "masorange",
-"engines": { "vscode": "^1.75.0" },
+  "engines": { "vscode": "^1.75.0" },
   "categories": ["Other"],
   "activationEvents": ["*"],
   "main": "./extension.js",
@@ -12,12 +12,33 @@
     "commands": [
       {
         "command": "claudeUsage.openReport",
-        "title": "Claude Usage: Abrir reporte"
+        "title": "Claude Usage: Abrir reporte HTML"
       },
       {
         "command": "claudeUsage.refresh",
         "title": "Claude Usage: Actualizar"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Claude Usage Tracker",
+      "properties": {
+        "claudeUsage.billingMode": {
+          "type": "string",
+          "enum": ["api", "plan"],
+          "enumDescriptions": [
+            "Facturación por tokens (API directa). Muestra el coste real.",
+            "Suscripción plana (Claude Max / Pro). Muestra el equivalente estimado de API como referencia."
+          ],
+          "default": "api",
+          "description": "Modo de facturación de Claude Code."
+        },
+        "claudeUsage.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 10,
+          "description": "Intervalo de actualización de la barra de estado en segundos."
+        }
+      }
+    }
   }
 }
