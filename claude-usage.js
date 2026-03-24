@@ -56,10 +56,8 @@ function calcCost(usage, model) {
 
 // ─── Nombre de proyecto ───────────────────────────────────────────────────────
 function cleanProjectName(folder) {
-  // Claude usa '---' como separador de path en los nombres de carpeta
   const parts = folder.split('---').filter(Boolean);
   const last  = parts[parts.length - 1] || folder;
-  // Elimina prefijos de usuario tipo "C--Users-nombre-"
   return last.replace(/^[A-Za-z]--[^-]+-[^-]+-/i, '') || last;
 }
 
@@ -71,14 +69,14 @@ if (!fs.existsSync(projectsDir)) {
   process.exit(1);
 }
 
-const byMonth   = {};  // { "2026-03": { project: { cost, tokens, models } } }
-const byProject = {};  // { project: { cost, tokens } }
-const byModel   = {};  // { model: { cost, input, cacheWrite, cacheRead, output } }
+const byMonth   = {};
+const byProject = {};
+const byModel   = {};
 let   totalCost = 0;
 let   totalTok  = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
 let   todayCost = 0;
 let   todayTok  = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
-const today     = new Date().toISOString().slice(0, 10); // "2026-03-24"
+const today     = new Date().toISOString().slice(0, 10);
 
 const projectFolders = fs.readdirSync(projectsDir).filter(f => {
   try { return fs.statSync(path.join(projectsDir, f)).isDirectory(); } catch { return false; }
@@ -125,19 +123,16 @@ for (const folder of projectFolders) {
         todayTok.output     += usage.output_tokens               || 0;
       }
 
-      // Por mes + proyecto
       if (!byMonth[month])                    byMonth[month] = {};
       if (!byMonth[month][projectName])       byMonth[month][projectName] = { cost: 0, tokens: 0, models: {} };
       byMonth[month][projectName].cost   += cost;
       byMonth[month][projectName].tokens += (usage.input_tokens || 0) + (usage.output_tokens || 0);
       byMonth[month][projectName].models[model] = (byMonth[month][projectName].models[model] || 0) + cost;
 
-      // Por proyecto
       if (!byProject[projectName]) byProject[projectName] = { cost: 0, tokens: 0 };
       byProject[projectName].cost   += cost;
       byProject[projectName].tokens += (usage.input_tokens || 0) + (usage.output_tokens || 0);
 
-      // Por modelo
       if (!byModel[model]) byModel[model] = { cost: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
       byModel[model].cost       += cost;
       byModel[model].input      += usage.input_tokens                || 0;
@@ -159,26 +154,24 @@ function monthLabel(m) {
   return `${names[parseInt(mo,10)-1]} ${y}`;
 }
 
-// ─── Datos para export CSV (se inyectan en el HTML como JSON) ─────────────────
-const meses    = Object.keys(byMonth).sort().reverse();
+// ─── Datos para export CSV ────────────────────────────────────────────────────
+const meses     = Object.keys(byMonth).sort().reverse();
 const mesActual = meses[0] || '';
 const costeMes  = mesActual ? Object.values(byMonth[mesActual]).reduce((s,p)=>s+p.cost,0) : 0;
 const now       = new Date().toLocaleString('es-ES');
 
-// Filas CSV: mes, proyecto, coste, tokens in, tokens out
 const csvRows = [['Mes','Proyecto','Coste USD','Tokens Entrada','Tokens Salida','Cache Escritura','Cache Lectura']];
 for (const [mes, proyectos] of Object.entries(byMonth).sort()) {
   for (const [proj, d] of Object.entries(proyectos)) {
     csvRows.push([mes, proj, d.cost.toFixed(6), d.tokens, '', '', '']);
   }
 }
-// modelo rows
 const csvModelos = [['Modelo','Coste USD','Tokens Entrada','Cache Escritura','Cache Lectura','Tokens Salida']];
 for (const [model, d] of Object.entries(byModel)) {
   csvModelos.push([model, d.cost.toFixed(6), d.input, d.cacheWrite, d.cacheRead, d.output]);
 }
 
-// ─── HTML: Tab "Por Mes" ─────────────────────────────────────────────────────
+// ─── HTML: Tab "Por Mes" ──────────────────────────────────────────────────────
 const tabMes = meses.map(mes => {
   const proyectos = byMonth[mes];
   const totalMes  = Object.values(proyectos).reduce((s,p)=>s+p.cost,0);
@@ -270,7 +263,7 @@ const tabModelo = (() => {
 
 // ─── HTML completo ────────────────────────────────────────────────────────────
 const planBanner = IS_PLAN
-  ? `<div class="plan-banner">⚠ Modo <strong>Plan</strong> — los importes mostrados son equivalentes estimados de API. Con una suscripción plana (Max/Pro) no se te cobra por tokens.</div>`
+  ? `<div class="plan-banner">Modo <strong>Plan</strong> &mdash; importes mostrados son equivalentes estimados de API. Con suscripcion plana (Max/Pro) no se cobra por tokens.</div>`
   : '';
 
 const html = `<!DOCTYPE html>
@@ -279,122 +272,210 @@ const html = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Claude Usage Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0d0d0d; --bg2: #161616; --bg3: #1e1e1e;
-    --border: #2a2a2a; --accent: #f0a500; --accent2: #ff6b35;
-    --blue: #7ec8e3; --green: #7ec87e; --dim: #666; --text: #ddd;
+    --orange:  #FF6600;
+    --orange2: #FF8533;
+    --bg:      #0C0C0C;
+    --bg2:     #141414;
+    --bg3:     #1A1A1A;
+    --bg4:     #212121;
+    --border:  #2C2C2C;
+    --text:    #E8E8E8;
+    --dim:     #5A5A5A;
+    --dim2:    #888;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system,'Segoe UI',sans-serif; background: var(--bg); color: var(--text); padding: 20px 24px; font-size: 14px; }
-  /* Header */
-  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; flex-wrap: wrap; gap: 8px; }
-  h1 { font-size: 1.3rem; font-weight: 700; color: #fff; }
-  .mode-badge { font-size: 0.7rem; font-weight: 600; padding: 3px 10px; border-radius: 20px;
-    background: ${IS_PLAN ? '#1a2a1a' : '#1a1a2a'}; color: ${IS_PLAN ? '#7ec87e' : '#7ec8e3'};
-    border: 1px solid ${IS_PLAN ? '#3a6b3a' : '#3a5a7a'}; }
-  .subtitle { color: var(--dim); font-size: 0.8rem; margin-bottom: 20px; }
-  /* Plan banner */
-  .plan-banner { background: #0f1f0f; border: 1px solid #3a6b3a; border-radius: 8px;
-    color: #7ec87e; font-size: 0.82rem; padding: 10px 16px; margin-bottom: 20px; line-height: 1.6; }
-  /* Cards */
-  .cards { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 28px; }
-  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; min-width: 150px; flex: 1; }
-  .card-label { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
-  .card-value { font-size: 1.6rem; font-weight: 700; color: var(--accent); line-height: 1; }
-  .card-value.sm { font-size: 1.2rem; color: var(--blue); }
-  .card-value.green { font-size: 1.2rem; color: var(--green); }
-  .card-sub { font-size: 0.75rem; color: var(--dim); margin-top: 6px; }
-  /* Tabs */
-  .tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
-  .tab-btn { background: none; border: none; color: var(--dim); font-size: 0.88rem; font-weight: 500;
-    padding: 8px 18px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
-    transition: color .15s, border-color .15s; }
-  .tab-btn:hover { color: var(--text); }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-pane { display: none; }
+  body {
+    font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── Topbar ───────────────────────────────────────────────────── */
+  .topbar {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .brand-dot {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--orange);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px; color: #fff; flex-shrink: 0;
+  }
+  .topbar-title { font-weight: 600; font-size: 15px; color: #fff; }
+  .topbar-sub   { font-size: 12px; color: var(--dim2); margin-top: 1px; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .mode-pill {
+    font-size: 11px; font-weight: 600; letter-spacing: .04em;
+    padding: 3px 10px; border-radius: 20px;
+    background: ${IS_PLAN ? 'rgba(255,102,0,.12)' : 'rgba(255,102,0,.12)'};
+    color: var(--orange);
+    border: 1px solid rgba(255,102,0,.3);
+  }
+  .btn-csv {
+    font-family: inherit;
+    font-size: 12px; font-weight: 500;
+    padding: 6px 14px; border-radius: 6px; cursor: pointer;
+    background: var(--bg3); border: 1px solid var(--border); color: var(--dim2);
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .btn-csv:hover { color: var(--text); border-color: #444; background: var(--bg4); }
+
+  /* ── Content ─────────────────────────────────────────────────── */
+  .content { padding: 28px 32px 48px; max-width: 1100px; margin: 0 auto; }
+
+  /* ── Plan banner ─────────────────────────────────────────────── */
+  .plan-banner {
+    background: rgba(255,102,0,.07); border: 1px solid rgba(255,102,0,.25);
+    border-radius: 8px; color: var(--orange2);
+    font-size: 13px; padding: 10px 16px; margin-bottom: 24px; line-height: 1.6;
+  }
+
+  /* ── KPI Cards ───────────────────────────────────────────────── */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-bottom: 32px; }
+  .card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px 20px 16px;
+  }
+  .card.featured { border-top: 3px solid var(--orange); padding-top: 17px; }
+  .card-label { font-size: 11px; font-weight: 500; color: var(--dim2); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px; }
+  .card-value { font-size: 1.65rem; font-weight: 700; color: var(--orange); line-height: 1; font-variant-numeric: tabular-nums; }
+  .card-value.secondary { font-size: 1.3rem; color: var(--text); }
+  .card-sub { font-size: 11px; color: var(--dim); margin-top: 8px; }
+
+  /* ── Tab bar ─────────────────────────────────────────────────── */
+  .tab-bar {
+    display: flex; gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+  .tab-btn {
+    font-family: inherit;
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--dim2); font-size: 13px; font-weight: 500;
+    padding: 10px 20px; cursor: pointer; margin-bottom: -1px;
+    transition: color .15s, border-color .15s;
+  }
+  .tab-btn:hover  { color: var(--text); }
+  .tab-btn.active { color: var(--orange); border-bottom-color: var(--orange); }
+  .tab-pane  { display: none; }
   .tab-pane.active { display: block; }
-  /* CSV export button */
-  .toolbar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
-  .btn-csv { background: var(--bg3); border: 1px solid var(--border); color: var(--dim);
-    font-size: 0.78rem; padding: 5px 14px; border-radius: 6px; cursor: pointer; transition: color .15s, border-color .15s; }
-  .btn-csv:hover { color: var(--text); border-color: #444; }
-  /* Month cards */
-  .month-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
-  .month-head { display: flex; justify-content: space-between; align-items: center;
-    padding: 12px 18px; background: var(--bg3); border-bottom: 1px solid var(--border); }
-  .month-name { font-weight: 600; color: #fff; }
-  .month-cost { font-weight: 700; font-size: 1.05rem; color: var(--accent); }
+
+  /* ── Month cards / tables ────────────────────────────────────── */
+  .month-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; margin-bottom: 14px; overflow: hidden;
+  }
+  .month-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 20px; background: var(--bg3); border-bottom: 1px solid var(--border);
+  }
+  .month-name { font-weight: 600; font-size: 14px; color: #fff; }
+  .month-cost { font-weight: 700; font-size: 15px; color: var(--orange); font-variant-numeric: tabular-nums; }
   table { width: 100%; border-collapse: collapse; }
-  th { padding: 9px 16px; text-align: left; font-size: 0.72rem; color: var(--dim); text-transform: uppercase;
-    letter-spacing: .05em; border-bottom: 1px solid #1e1e1e; white-space: nowrap; }
-  td { padding: 9px 16px; font-size: 0.83rem; border-bottom: 1px solid #1a1a1a; vertical-align: middle; }
+  th {
+    padding: 9px 18px; text-align: left;
+    font-size: 11px; font-weight: 600; color: var(--dim);
+    text-transform: uppercase; letter-spacing: .05em;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+    background: var(--bg3);
+  }
+  td { padding: 9px 18px; font-size: 13px; border-bottom: 1px solid #1C1C1C; vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
-  tr:hover td { background: #1a1a1a; }
-  .td-r { text-align: right; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .td-r    { text-align: right; }
   .td-proj { max-width: 280px; word-break: break-word; }
-  .cost { color: var(--accent); font-weight: 600; font-family: monospace; }
-  .dim { color: var(--dim); }
-  .bar-wrap { background: #252525; border-radius: 3px; height: 5px; max-width: 180px; width: 100%; margin-bottom: 5px; }
+  .cost    { color: var(--orange); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dim     { color: var(--dim2); }
+
+  /* ── Bars & badges ───────────────────────────────────────────── */
+  .bar-wrap { background: #252525; border-radius: 3px; height: 4px; max-width: 180px; width: 100%; margin-bottom: 6px; }
   .bar-wide { max-width: 260px; }
-  .bar { background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 3px; height: 5px; }
+  .bar { background: linear-gradient(90deg, var(--orange), var(--orange2)); border-radius: 3px; height: 4px; }
   .badges { display: flex; flex-wrap: wrap; gap: 3px; }
-  .badge { font-size: 0.68rem; background: #252525; color: #777; padding: 1px 6px; border-radius: 8px; }
-  .empty { color: var(--dim); padding: 20px; }
-  /* Footer */
-  .footer { font-size: 0.75rem; color: #333; margin-top: 32px; text-align: center; }
-  @media (max-width: 600px) { .cards { flex-direction: column; } .tab-btn { padding: 8px 12px; } }
+  .badge  { font-size: 11px; background: #252525; color: var(--dim2); padding: 1px 7px; border-radius: 8px; }
+  .empty  { color: var(--dim); padding: 24px 20px; font-size: 13px; }
+
+  /* ── Footer ──────────────────────────────────────────────────── */
+  .footer { font-size: 11px; color: #2E2E2E; margin-top: 40px; text-align: center; }
+
+  @media (max-width: 640px) {
+    .topbar { padding: 0 16px; }
+    .content { padding: 20px 16px 40px; }
+    .cards  { grid-template-columns: 1fr 1fr; }
+    .tab-btn { padding: 10px 14px; font-size: 12px; }
+    th, td { padding: 8px 12px; }
+  }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>Claude Usage Tracker</h1>
-  <span class="mode-badge">${IS_PLAN ? 'PLAN' : 'API'}</span>
-</div>
-<p class="subtitle">Actualizado: ${now}</p>
+<!-- Topbar -->
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="brand-dot">O</div>
+    <div>
+      <div class="topbar-title">Claude Usage Tracker</div>
+      <div class="topbar-sub">Orange &mdash; Monitorizacion de uso &middot; ${now}</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span class="mode-pill">${IS_PLAN ? 'PLAN' : 'API'}</span>
+    <button class="btn-csv" onclick="exportCSV()">Exportar CSV</button>
+  </div>
+</header>
+
+<!-- Content -->
+<main class="content">
 
 ${planBanner}
 
-<!-- Cards resumen -->
+<!-- KPI Cards -->
 <div class="cards">
-  <div class="card">
+  <div class="card featured">
     <div class="card-label">${IS_PLAN ? 'Equiv. total estimado' : 'Coste total'}</div>
     <div class="card-value">${$4(totalCost)}</div>
-    <div class="card-sub">${projectFolders.length} proyectos · ${meses.length} meses</div>
+    <div class="card-sub">${projectFolders.length} proyectos &middot; ${meses.length} meses</div>
   </div>
   <div class="card">
     <div class="card-label">Mes actual</div>
-    <div class="card-value sm">${mesActual ? $4(costeMes) : '-'}</div>
-    <div class="card-sub">${mesActual ? monthLabel(mesActual) : '—'}</div>
+    <div class="card-value secondary">${mesActual ? $4(costeMes) : '&mdash;'}</div>
+    <div class="card-sub">${mesActual ? monthLabel(mesActual) : '&mdash;'}</div>
   </div>
   <div class="card">
     <div class="card-label">Hoy</div>
-    <div class="card-value green">${$4(todayCost)}</div>
-    <div class="card-sub">in: ${fmt(todayTok.input)} · out: ${fmt(todayTok.output)}</div>
+    <div class="card-value secondary">${$4(todayCost)}</div>
+    <div class="card-sub">in: ${fmt(todayTok.input)} &middot; out: ${fmt(todayTok.output)}</div>
   </div>
   <div class="card">
-    <div class="card-label">Tokens entrada (total)</div>
-    <div class="card-value sm">${fmt(totalTok.input)}</div>
-    <div class="card-sub">Cache escr: ${fmt(totalTok.cacheWrite)} · lect: ${fmt(totalTok.cacheRead)}</div>
+    <div class="card-label">Tokens entrada</div>
+    <div class="card-value secondary">${fmt(totalTok.input)}</div>
+    <div class="card-sub">Cache escr: ${fmt(totalTok.cacheWrite)}</div>
   </div>
   <div class="card">
-    <div class="card-label">Tokens salida (total)</div>
-    <div class="card-value sm">${fmt(totalTok.output)}</div>
-    <div class="card-sub"> </div>
+    <div class="card-label">Tokens salida</div>
+    <div class="card-value secondary">${fmt(totalTok.output)}</div>
+    <div class="card-sub">Cache lect: ${fmt(totalTok.cacheRead)}</div>
   </div>
 </div>
 
-<!-- Tabs -->
+<!-- Tab bar -->
 <div class="tab-bar">
   <button class="tab-btn active" onclick="showTab('mes',this)">Por Mes</button>
   <button class="tab-btn"        onclick="showTab('proyecto',this)">Por Proyecto</button>
   <button class="tab-btn"        onclick="showTab('modelo',this)">Por Modelo</button>
-</div>
-
-<!-- Export CSV -->
-<div class="toolbar">
-  <button class="btn-csv" onclick="exportCSV()">⬇ Exportar CSV</button>
 </div>
 
 <!-- Tab Mes -->
@@ -412,7 +493,9 @@ ${planBanner}
   ${tabModelo}
 </div>
 
-<p class="footer">Datos leídos desde ${projectsDir.replace(/\\/g,'/')}</p>
+<p class="footer">Datos desde ${projectsDir.replace(/\\/g,'/')}</p>
+
+</main>
 
 <script>
 function showTab(name, btn) {
@@ -422,7 +505,6 @@ function showTab(name, btn) {
   btn.classList.add('active');
 }
 
-// Datos para CSV
 const CSV_DATA = ${JSON.stringify({ rows: csvRows, modelos: csvModelos })};
 
 function exportCSV() {
@@ -433,7 +515,7 @@ function exportCSV() {
     ['=== POR MODELO ==='],
     ...CSV_DATA.modelos
   ];
-  const csv = all.map(r => r.map(c => '"' + String(c ?? '').replace(/"/g,'""') + '"').join(',')).join('\\n');
+  const csv = all.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g,'""') + '"').join(',')).join('\\n');
   const blob = new Blob(['\\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const a    = document.createElement('a');
   a.href     = URL.createObjectURL(blob);
