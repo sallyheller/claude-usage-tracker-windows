@@ -53,7 +53,7 @@ Cuando se actualiza la carpeta compartida, todos los usuarios reciben la nueva v
 ### Instalación manual (desde el repositorio)
 
 ```powershell
-git clone https://github.com/sallyheller/claude-usage-tracker-windows.git
+git clone https://github.com/diegoalvarezf/claude-usage-tracker-windows.git
 cd claude-usage-tracker-windows
 .\install.ps1
 ```
@@ -177,4 +177,4 @@ El tracker lee esos archivos, extrae los tokens de uso y calcula el coste según
 ## Créditos
 
 - Proyecto original (macOS): [masorange/ClaudeUsageTracker](https://github.com/masorange/ClaudeUsageTracker)
-- Adaptación Windows: [sallyheller/claude-usage-tracker-windows](https://github.com/sallyheller/claude-usage-tracker-windows)
+- Adaptación Windows: [diegoalvarezf/claude-usage-tracker-windows](https://github.com/diegoalvarezf/claude-usage-tracker-windows)
