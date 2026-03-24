@@ -272,8 +272,8 @@ function script:Build-Menu {
 
     $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 
-    # ── Modo facturación ──
-    $itemMode = New-Object System.Windows.Forms.ToolStripMenuItem("  Modo de facturación")
+    # ── Modo facturacion ──
+    $itemMode = New-Object System.Windows.Forms.ToolStripMenuItem("  Modo de facturacion")
 
     $script:itemApi  = New-Object System.Windows.Forms.ToolStripMenuItem("  API  -  coste real por tokens")
     $script:itemPlan = New-Object System.Windows.Forms.ToolStripMenuItem("  Plan -  equivalente estimado (Max/Pro)")
