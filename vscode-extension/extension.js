@@ -72,6 +72,9 @@ function parseUsage() {
   const byModel   = {};
   let   totalCost = 0;
   let   totalTok  = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
+  let   todayCost = 0;
+  let   todayTok  = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
+  const today     = new Date().toISOString().slice(0, 10);
 
   const projectFolders = fs.readdirSync(projectsDir).filter(f => {
     try { return fs.statSync(path.join(projectsDir, f)).isDirectory(); } catch { return false; }
@@ -97,10 +100,12 @@ function parseUsage() {
         const usage = entry.message && entry.message.usage;
         if (!usage) continue;
 
-        const model = (entry.message && entry.message.model) || 'unknown';
+        const model     = (entry.message && entry.message.model) || 'unknown';
         if (model === '<synthetic>') continue;
-        const month = (entry.timestamp || '').slice(0, 7);
+        const timestamp = entry.timestamp || '';
+        const month     = timestamp.slice(0, 7);
         if (!month) continue;
+        const day = timestamp.slice(0, 10);
 
         const cost = calcCost(usage, model);
         totalCost += cost;
@@ -110,13 +115,22 @@ function parseUsage() {
         totalTok.cacheRead  += usage.cache_read_input_tokens     || 0;
         totalTok.output     += usage.output_tokens               || 0;
 
+        if (day === today) {
+          todayCost += cost;
+          todayTok.input      += usage.input_tokens                || 0;
+          todayTok.cacheWrite += usage.cache_creation_input_tokens || 0;
+          todayTok.cacheRead  += usage.cache_read_input_tokens     || 0;
+          todayTok.output     += usage.output_tokens               || 0;
+        }
+
         if (!byMonth[month])              byMonth[month] = {};
         if (!byMonth[month][projectName]) byMonth[month][projectName] = { cost: 0, models: {} };
         byMonth[month][projectName].cost += cost;
         byMonth[month][projectName].models[model] = (byMonth[month][projectName].models[model] || 0) + cost;
 
-        if (!byProject[projectName]) byProject[projectName] = { cost: 0 };
-        byProject[projectName].cost += cost;
+        if (!byProject[projectName]) byProject[projectName] = { cost: 0, tokens: 0 };
+        byProject[projectName].cost   += cost;
+        byProject[projectName].tokens += (usage.input_tokens || 0) + (usage.output_tokens || 0);
 
         if (!byModel[model]) byModel[model] = { cost: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
         byModel[model].cost       += cost;
@@ -128,12 +142,12 @@ function parseUsage() {
     }
   }
 
-  return { byMonth, byProject, byModel, totalCost, totalTok, projectFolders, projectsDir };
+  return { byMonth, byProject, byModel, totalCost, totalTok, todayCost, todayTok, projectFolders, projectsDir };
 }
 
 // ─── Generación del HTML ──────────────────────────────────────────────────────
 function generateHtml(data, isPlan) {
-  const { byMonth, byModel, totalCost, totalTok, projectFolders, projectsDir } = data;
+  const { byMonth, byProject, byModel, totalCost, totalTok, todayCost, projectFolders, projectsDir } = data;
   const meses = Object.keys(byMonth).sort().reverse();
   const $ = n => fmtCost(n, isPlan);
 
@@ -171,6 +185,20 @@ function generateHtml(data, isPlan) {
         <tbody>${filas}</tbody></table>
       </div>`;
   }).join('');
+
+  const proyectoTabla = Object.entries(byProject)
+    .sort((a,b) => b[1].cost - a[1].cost)
+    .map(([proj, d]) => {
+      const pct = totalCost > 0 ? ((d.cost / totalCost) * 100).toFixed(1) : '0.0';
+      const bar = Math.max(1, Math.round(parseFloat(pct)));
+      return `<tr>
+        <td>${proj}</td>
+        <td class="right cost">${$(d.cost)}</td>
+        <td class="right">${pct}%</td>
+        <td class="right">${fmt(d.tokens)}</td>
+        <td><div class="bar-wrap bar-wide"><div class="bar" style="width:${bar}%"></div></div></td>
+      </tr>`;
+    }).join('');
 
   const modelasTabla = Object.entries(byModel)
     .sort((a,b) => b[1].cost - a[1].cost)
@@ -267,14 +295,22 @@ ${planBanner}
 <div class="cards">
   <div class="card featured"><div class="card-label">${isPlan ? 'Equiv. total estimado' : 'Coste total'}</div><div class="card-value">${$(totalCost)}</div><div class="card-sub">${projectFolders.length} proyectos</div></div>
   <div class="card"><div class="card-label">Mes actual</div><div class="card-value secondary">${$(costeMesActual)}</div><div class="card-sub">${mesActual ? monthLabel(mesActual) : '&mdash;'}</div></div>
+  <div class="card"><div class="card-label">Hoy</div><div class="card-value secondary">${$(todayCost)}</div><div class="card-sub">${new Date().toISOString().slice(0,10)}</div></div>
   <div class="card"><div class="card-label">Tokens entrada</div><div class="card-value secondary">${fmt(totalTok.input)}</div><div class="card-sub">Cache escr: ${fmt(totalTok.cacheWrite)}</div></div>
   <div class="card"><div class="card-label">Tokens salida</div><div class="card-value secondary">${fmt(totalTok.output)}</div><div class="card-sub">Cache lect: ${fmt(totalTok.cacheRead)}</div></div>
 </div>
 <div class="tab-bar">
   <button class="tab-btn active" onclick="showTab('mes',this)">Por Mes</button>
+  <button class="tab-btn" onclick="showTab('proyecto',this)">Por Proyecto</button>
   <button class="tab-btn" onclick="showTab('modelo',this)">Por Modelo</button>
 </div>
 <div id="tab-mes" class="tab-pane active">${mesesTabla || '<p class="empty">Sin datos</p>'}</div>
+<div id="tab-proyecto" class="tab-pane">
+  <div class="month-card"><table>
+    <thead><tr><th>Proyecto</th><th class="td-r">${isPlan ? 'Equiv. estim.' : 'Coste total'}</th><th class="td-r">%</th><th class="td-r">Tokens</th><th>Distribución</th></tr></thead>
+    <tbody>${proyectoTabla || '<tr><td colspan="5" class="empty">Sin datos</td></tr>'}</tbody>
+  </table></div>
+</div>
 <div id="tab-modelo" class="tab-pane">
   <div class="month-card"><table>
     <thead><tr><th>Modelo</th><th class="td-r">${isPlan ? 'Equiv. estim.' : 'Coste'}</th><th class="td-r">%</th><th class="td-r">Entrada</th><th class="td-r">Cache escr.</th><th class="td-r">Cache lect.</th><th class="td-r">Salida</th></tr></thead>
