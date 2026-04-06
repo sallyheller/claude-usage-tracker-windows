@@ -35,6 +35,7 @@
     "tray.ps1",
     "tray-launcher.js",
     "postinstall.js",
+    "orange-logo.svg",
     "README.md"
   ]
 }

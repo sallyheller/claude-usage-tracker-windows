@@ -93,10 +93,14 @@ function script:Get-UsageData {
     $today        = (Get-Date).ToString("yyyy-MM-dd")
     $currentMonth = (Get-Date).ToString("yyyy-MM")
 
-    Get-ChildItem $projectsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        Get-ChildItem $_.FullName -Filter "*.jsonl" -ErrorAction SilentlyContinue | ForEach-Object {
+    $projectDirs = [System.IO.Directory]::GetDirectories($projectsDir)
+    foreach ($dir in $projectDirs) {
+        try {
+            $jsonlFiles = [System.IO.Directory]::GetFiles($dir, "*.jsonl")
+        } catch { continue }
+        foreach ($filePath in $jsonlFiles) {
             try {
-                $reader = [System.IO.StreamReader]::new($_.FullName, [System.Text.Encoding]::UTF8)
+                $reader = [System.IO.StreamReader]::new($filePath, [System.Text.Encoding]::UTF8)
                 while (($line = $reader.ReadLine()) -ne $null) {
                     if ($line.Length -lt 20) { continue }
                     try {
@@ -104,9 +108,9 @@ function script:Get-UsageData {
                         if ($e.type -ne "assistant") { continue }
                         $usage = $e.message.usage
                         if (-not $usage) { continue }
-                        $model = if ($e.message.model) { $e.message.model } else { "" }
+                        $model = if ($e.message.model) { [string]$e.message.model } else { "" }
                         if ($model -eq "<synthetic>") { continue }
-                        $ts = if ($e.timestamp) { $e.timestamp } else { "" }
+                        $ts = if ($e.timestamp) { [string]$e.timestamp } else { "" }
                         if ($ts.Length -lt 7) { continue }
 
                         $cost  = script:Get-Cost $usage $model
@@ -123,10 +127,11 @@ function script:Get-UsageData {
         }
     }
 
+    $monthCost = if ($byMonth.ContainsKey($currentMonth)) { $byMonth[$currentMonth] } else { 0.0 }
     return @{
         Total        = [math]::Round($totalCost, 6)
         Today        = [math]::Round($todayCost, 6)
-        CurrentMonth = [math]::Round((if ($byMonth.ContainsKey($currentMonth)) { $byMonth[$currentMonth] } else { 0.0 }), 6)
+        CurrentMonth = [math]::Round($monthCost, 6)
         Month        = $currentMonth
     }
 }
@@ -213,165 +218,263 @@ function script:Open-Report {
     }
 }
 
-# ─── Actualizar display (tooltip + labels del menú) ──────────────────────────
-function script:Update-Display {
-    $isPlan = ($script:config.mode -eq "plan")
-    $prefix = if ($isPlan) { "~" } else { "" }
 
+# ─── Actualizar datos (lee archivos) + refresca labels ───────────────────────
+function script:Update-Display {
     try {
         $script:data = script:Get-UsageData
     } catch {
         $script:data = $null
     }
 
-    if ($null -eq $script:data) {
+    $isPlan = ($script:config.mode -eq "plan")
+    $prefix = if ($isPlan) { "~" } else { "" }
+
+    if ($null -ne $script:data) {
+        try {
+            $mes   = [double]$script:data["CurrentMonth"]
+            $total = [double]$script:data["Total"]
+            $tip = "Claude Cost  $prefix`$$([math]::Round($mes,2))/mes"
+            $script:tray.Text = if ($tip.Length -gt 63) { $tip.Substring(0, 63) } else { $tip }
+        } catch {
+            $script:tray.Text = "Claude Cost"
+        }
+    } else {
         $script:tray.Text = "Claude Cost"
-        if ($script:itemMes)   { $script:itemMes.Text   = "  Este mes:   sin datos" }
-        if ($script:itemHoy)   { $script:itemHoy.Text   = "  Hoy:        sin datos" }
-        if ($script:itemTotal) { $script:itemTotal.Text = "  Total:      sin datos" }
-        return
     }
 
+    script:Refresh-Labels
+}
+
+# ─── DWM: esquinas redondeadas nativas Windows 11 ────────────────────────────
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class DwmApi {
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int val, int size);
+    public static void RoundCorners(IntPtr h) { int v = 2; DwmSetWindowAttribute(h, 33, ref v, 4); }
+}
+"@ -ErrorAction SilentlyContinue
+
+# ─── Popup moderno ───────────────────────────────────────────────────────────
+function script:New-Popup {
+    $cBg     = [System.Drawing.Color]::FromArgb(28, 28, 28)
+    $cBgHead = [System.Drawing.Color]::FromArgb(32, 32, 32)
+    $cSep    = [System.Drawing.Color]::FromArgb(90, 90, 90)
+    $cText   = [System.Drawing.Color]::FromArgb(235, 235, 235)
+    $cDim    = [System.Drawing.Color]::FromArgb(130, 130, 130)
+    $cOrange = [System.Drawing.Color]::FromArgb(255, 110, 20)
+    $cHover  = [System.Drawing.Color]::FromArgb(45, 45, 45)
+    $cBorder = [System.Drawing.Color]::FromArgb(55, 55, 55)
+
+    $W = 268
+    $fontUI  = New-Object System.Drawing.Font("Segoe UI", 9)
+    $fontSm  = New-Object System.Drawing.Font("Segoe UI", 8)
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+    $form.ShowInTaskbar   = $false
+    $form.TopMost         = $true
+    $form.BackColor       = $cBg
+    $form.Width           = $W
+    $form.Height          = 10
+    $form.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
+    $form.Padding         = New-Object System.Windows.Forms.Padding(0)
+
+    $form.Add_HandleCreated({
+        try { [DwmApi]::RoundCorners($this.Handle) } catch {}
+    }) | Out-Null
+    $form.Add_Paint({
+        $pen = New-Object System.Drawing.Pen($cBorder)
+        $_.Graphics.DrawRectangle($pen, 0, 0, ($form.Width - 1), ($form.Height - 1))
+        $pen.Dispose()
+    }) | Out-Null
+    $form.Add_Deactivate({ $script:popup.Hide() }) | Out-Null
+
+    $y = 0
+
+    # Helper: label izquierda
+    function AddLabel($text, $x, $ly, $w, $h, $color, $font) {
+        $l = New-Object System.Windows.Forms.Label
+        $l.Text      = $text
+        $l.ForeColor = $color
+        $l.Font      = $font
+        $l.Location  = New-Object System.Drawing.Point($x, $ly)
+        $l.Size      = New-Object System.Drawing.Size($w, $h)
+        $l.BackColor = [System.Drawing.Color]::Transparent
+        $form.Controls.Add($l)
+        return $l
+    }
+
+    # Helper: separador full-width
+    function AddSep($sy) {
+        $s = New-Object System.Windows.Forms.Panel
+        $s.BackColor = $cSep
+        $s.Location  = New-Object System.Drawing.Point(0, $sy)
+        $s.Size      = New-Object System.Drawing.Size($W, 1)
+        $form.Controls.Add($s)
+    }
+
+    # Helper: boton plano
+    function AddBtn($text, $x, $by, $bw, $bh, $action) {
+        $b = New-Object System.Windows.Forms.Button
+        $b.Text      = $text
+        $b.Font      = $fontSm
+        $b.ForeColor = $cText
+        $b.BackColor = $cBg
+        $b.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+        $b.FlatAppearance.BorderSize             = 1
+        $b.FlatAppearance.BorderColor            = $cBorder
+        $b.FlatAppearance.MouseOverBackColor     = $cHover
+        $b.FlatAppearance.MouseDownBackColor     = [System.Drawing.Color]::FromArgb(58, 58, 58)
+        $b.Location  = New-Object System.Drawing.Point($x, $by)
+        $b.Size      = New-Object System.Drawing.Size($bw, $bh)
+        $b.Cursor    = [System.Windows.Forms.Cursors]::Hand
+        $b.Add_Click($action) | Out-Null
+        $form.Controls.Add($b)
+        return $b
+    }
+
+    # ── Header ───────────────────────────────────────────────────────────────
+    $y = 14
+    AddLabel "Claude Cost" 16 $y 160 20 $cText $fontUI | Out-Null
+    $modeX = $W - 56
+    $script:lblModeTag = AddLabel "API" $modeX $y 40 18 $cOrange $fontSm
+    $script:lblModeTag.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+    $y += 30
+
+    AddSep $y; $y += 12
+
+    # ── Stats ────────────────────────────────────────────────────────────────
+    $valX  = $W - 100
+    $valW  = 88
+    $rowH  = 22
+
+    AddLabel "Este mes" 16 $y 120 $rowH $cDim $fontUI | Out-Null
+    $script:lblMes = AddLabel "..." $valX $y $valW $rowH $cText $fontUI
+    $script:lblMes.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+    $y += $rowH + 4
+
+    AddLabel "Hoy" 16 $y 120 $rowH $cDim $fontUI | Out-Null
+    $script:lblHoy = AddLabel "..." $valX $y $valW $rowH $cText $fontUI
+    $script:lblHoy.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+    $y += $rowH + 4
+
+    AddLabel "Total" 16 $y 120 $rowH $cDim $fontUI | Out-Null
+    $script:lblTotal = AddLabel "..." $valX $y $valW $rowH $cOrange $fontUI
+    $script:lblTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+    $y += $rowH + 12
+
+    AddSep $y; $y += 12
+
+    # ── Acciones ─────────────────────────────────────────────────────────────
+    $btnH = 28
+    AddBtn "Ver reporte" 12 $y 140 $btnH { $script:popup.Hide(); script:Open-Report } | Out-Null
+    $refreshX = 158
+    AddBtn "Actualizar" $refreshX $y 98 $btnH { script:Update-Display } | Out-Null
+    $y += $btnH + 8
+
+    AddSep $y; $y += 10
+
+    # ── Footer: modo + arranque + salir ──────────────────────────────────────
+    $smH = 24
+    $modeLabel = if ($script:config.mode -eq "plan") { "Plan" } else { "API" }
+    $script:btnMode = AddBtn "Modo: $modeLabel" 12 $y 90 $smH {
+        if ($script:config.mode -eq "api") {
+            $script:config.mode = "plan"; $script:btnMode.Text = "Modo: Plan"
+        } else {
+            $script:config.mode = "api";  $script:btnMode.Text = "Modo: API"
+        }
+        script:Save-Config; script:Update-Display
+    }
+    $startTxt = if (script:Test-StartupEntry) { "Arranque ON" } else { "Arranque" }
+    $script:btnStartup = AddBtn $startTxt 108 $y 96 $smH {
+        if (script:Test-StartupEntry) {
+            script:Disable-Startup; $script:btnStartup.Text = "Arranque"
+        } else {
+            script:Enable-Startup;  $script:btnStartup.Text = "Arranque ON"
+        }
+    }
+    AddBtn "Salir" 210 $y 46 $smH {
+        $script:popup.Hide()
+        $script:tray.Visible = $false; $script:timer.Stop()
+        try { $script:mutex.ReleaseMutex() } catch {}
+        [System.Windows.Forms.Application]::Exit()
+    } | Out-Null
+    $y += $smH + 12
+
+    $form.Height = $y
+    return $form
+}
+
+# ─── Refrescar labels del popup desde datos cacheados ────────────────────────
+function script:Refresh-Labels {
+    $isPlan = ($script:config.mode -eq "plan")
+    $prefix = if ($isPlan) { "~" } else { "" }
+
+    if ($script:lblModeTag) {
+        $script:lblModeTag.Text = if ($isPlan) { "Plan" } else { "API" }
+    }
+
+    if ($null -eq $script:data) {
+        if ($script:lblMes)   { $script:lblMes.Text   = "sin datos" }
+        if ($script:lblHoy)   { $script:lblHoy.Text   = "sin datos" }
+        if ($script:lblTotal) { $script:lblTotal.Text = "sin datos" }
+        return
+    }
     try {
         $mes   = [double]$script:data["CurrentMonth"]
         $hoy   = [double]$script:data["Today"]
         $total = [double]$script:data["Total"]
-
-        $tip = "Claude $prefix`$$([math]::Round($mes,2))/mes  $prefix`$$([math]::Round($total,2)) total"
-        $script:tray.Text = if ($tip.Length -gt 63) { $tip.Substring(0, 63) } else { $tip }
-
-        if ($script:itemMes)   { $script:itemMes.Text   = "  Este mes:   $prefix`$$('{0:F4}' -f $mes)" }
-        if ($script:itemHoy)   { $script:itemHoy.Text   = "  Hoy:        $prefix`$$('{0:F4}' -f $hoy)" }
-        if ($script:itemTotal) { $script:itemTotal.Text = "  Total:      $prefix`$$('{0:F4}' -f $total)" }
+        if ($script:lblMes)   { $script:lblMes.Text   = "$prefix`$$('{0:F4}' -f $mes)" }
+        if ($script:lblHoy)   { $script:lblHoy.Text   = "$prefix`$$('{0:F4}' -f $hoy)" }
+        if ($script:lblTotal) { $script:lblTotal.Text = "$prefix`$$('{0:F4}' -f $total)" }
     } catch {
-        $script:tray.Text = "Claude Cost"
-        if ($script:itemMes)   { $script:itemMes.Text   = "  Este mes:   error" }
-        if ($script:itemHoy)   { $script:itemHoy.Text   = "  Hoy:        error" }
-        if ($script:itemTotal) { $script:itemTotal.Text = "  Total:      error" }
+        if ($script:lblMes)   { $script:lblMes.Text   = "error" }
+        if ($script:lblHoy)   { $script:lblHoy.Text   = "error" }
+        if ($script:lblTotal) { $script:lblTotal.Text = "error" }
     }
 }
 
-# ─── Construir menú contextual ───────────────────────────────────────────────
-function script:Build-Menu {
-    $menu = New-Object System.Windows.Forms.ContextMenuStrip
-    $menu.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-    $menu.Add_Opening({ script:Update-Display }) | Out-Null
-
-    # ── Stats (no clicables) ──
-    $script:itemMes   = New-Object System.Windows.Forms.ToolStripMenuItem("  Este mes:   cargando...")
-    $script:itemHoy   = New-Object System.Windows.Forms.ToolStripMenuItem("  Hoy:        ...")
-    $script:itemTotal = New-Object System.Windows.Forms.ToolStripMenuItem("  Total:      ...")
-    foreach ($it in @($script:itemMes, $script:itemHoy, $script:itemTotal)) {
-        $it.Enabled = $false
-        $it.Font    = New-Object System.Drawing.Font("Consolas", 9)
-        $menu.Items.Add($it) | Out-Null
-    }
-
-    $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
-
-    # ── Ver reporte ──
-    $itemReport = New-Object System.Windows.Forms.ToolStripMenuItem("  Ver reporte completo")
-    $itemReport.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-    $itemReport.Add_Click({ script:Open-Report }) | Out-Null
-    $menu.Items.Add($itemReport) | Out-Null
-
-    # ── Actualizar ──
-    $itemRefresh = New-Object System.Windows.Forms.ToolStripMenuItem("  Actualizar ahora")
-    $itemRefresh.Add_Click({ script:Update-Display }) | Out-Null
-    $menu.Items.Add($itemRefresh) | Out-Null
-
-    $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
-
-    # ── Modo facturacion ──
-    $itemMode = New-Object System.Windows.Forms.ToolStripMenuItem("  Modo de facturacion")
-
-    $script:itemApi  = New-Object System.Windows.Forms.ToolStripMenuItem("  API  -  coste real por tokens")
-    $script:itemPlan = New-Object System.Windows.Forms.ToolStripMenuItem("  Plan -  equivalente estimado (Max/Pro)")
-    $script:itemApi.Checked  = ($script:config.mode -eq "api")
-    $script:itemPlan.Checked = ($script:config.mode -eq "plan")
-
-    $script:itemApi.Add_Click({
-        $script:config.mode = "api"
-        $script:itemApi.Checked  = $true
-        $script:itemPlan.Checked = $false
-        script:Save-Config; script:Update-Display
-    }) | Out-Null
-    $script:itemPlan.Add_Click({
-        $script:config.mode = "plan"
-        $script:itemPlan.Checked = $true
-        $script:itemApi.Checked  = $false
-        script:Save-Config; script:Update-Display
-    }) | Out-Null
-
-    $itemMode.DropDownItems.Add($script:itemApi)  | Out-Null
-    $itemMode.DropDownItems.Add($script:itemPlan) | Out-Null
-    $menu.Items.Add($itemMode) | Out-Null
-
-    $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
-
-    # ── Iniciar con Windows ──
-    $script:itemStartup = New-Object System.Windows.Forms.ToolStripMenuItem("  Iniciar con Windows")
-    $script:itemStartup.Checked = (script:Test-StartupEntry)
-    $script:itemStartup.Add_Click({
-        if (script:Test-StartupEntry) {
-            script:Disable-Startup
-            $script:itemStartup.Checked = $false
-        } else {
-            script:Enable-Startup
-            $script:itemStartup.Checked = $true
-        }
-    }) | Out-Null
-    $menu.Items.Add($script:itemStartup) | Out-Null
-
-    $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
-
-    # ── Salir ──
-    $itemExit = New-Object System.Windows.Forms.ToolStripMenuItem("  Salir")
-    $itemExit.Add_Click({
-        $script:tray.Visible = $false
-        $script:timer.Stop()
-        try { $script:mutex.ReleaseMutex() } catch {}
-        [System.Windows.Forms.Application]::Exit()
-    }) | Out-Null
-    $menu.Items.Add($itemExit) | Out-Null
-
-    return $menu
+# ─── Mostrar popup cerca del icono ───────────────────────────────────────────
+function script:Show-Popup {
+    if ($script:popup.Visible) { $script:popup.Hide(); return }
+    script:Refresh-Labels
+    $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    $px = $screen.Right  - $script:popup.Width  - 14
+    $py = $screen.Bottom - $script:popup.Height - 14
+    $script:popup.Location = New-Object System.Drawing.Point($px, $py)
+    $script:popup.Show()
+    $script:popup.Activate()
 }
 
 # ─── MAIN ────────────────────────────────────────────────────────────────────
-$script:data = $null
+$script:data  = $null
+$script:popup = script:New-Popup
 
-# Crear icono en la bandeja
 $script:tray = New-Object System.Windows.Forms.NotifyIcon
 $script:tray.Icon    = script:New-TrayIcon
 $script:tray.Visible = $true
-$script:tray.Text    = "Claude Usage Tracker - iniciando..."
+$script:tray.Text    = "Claude Cost"
 
-# Clic izquierdo y doble clic → abrir reporte
 $script:tray.Add_MouseClick({
-    if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { script:Open-Report }
+    if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left)  { script:Open-Report  }
+    if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right) { script:Show-Popup   }
 }) | Out-Null
 $script:tray.Add_DoubleClick({ script:Open-Report }) | Out-Null
 
-# Construir y asignar menú contextual
-$script:tray.ContextMenuStrip = script:Build-Menu
-
-# Timer de refresco automático (cada 60 segundos)
 $script:timer = New-Object System.Windows.Forms.Timer
 $script:timer.Interval = 60000
 $script:timer.Add_Tick({ script:Update-Display }) | Out-Null
 $script:timer.Start()
 
-# Primera carga de datos
 script:Update-Display
 
-# Notificación de bienvenida
 $script:tray.ShowBalloonTip(
-    4000,
-    "Claude Usage Tracker",
+    3000, "Claude Usage Tracker",
     "Activo en la bandeja. Clic para ver el reporte.",
     [System.Windows.Forms.ToolTipIcon]::Info
 )
 
-# Bucle de mensajes de Windows Forms
 [System.Windows.Forms.Application]::Run()

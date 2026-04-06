@@ -18,6 +18,22 @@ const { execSync } = require('child_process');
 // ─── Modo de facturación ─────────────────────────────────────────────────────
 const IS_PLAN = process.argv.includes('--plan');
 
+// ─── Logo Orange ──────────────────────────────────────────────────────────────
+const LOGO_PATHS = [
+  path.join(__dirname, 'orange-logo.svg'),
+  path.join(os.homedir(), 'OneDrive - MASORANGE', 'Descargas', 'Orange_Master_logo.svg'),
+];
+let logoB64    = '';
+let logoInline = '';
+for (const p of LOGO_PATHS) {
+  try {
+    const svgRaw = fs.readFileSync(p, 'utf8');
+    logoB64    = Buffer.from(svgRaw).toString('base64');
+    logoInline = svgRaw.trim();
+    break;
+  } catch { }
+}
+
 // ─── Precios por modelo (USD / millón de tokens) ─────────────────────────────
 const PRICING = {
   'claude-sonnet-4-6': { input: 3.00, cacheWrite: 3.75, cacheRead: 0.30, output: 15.00 },
@@ -192,17 +208,20 @@ const tabMes = meses.map(mes => {
             <div class="badges">${badges}</div></td>
       </tr>`;
     }).join('');
-  return `<div class="month-card">
-    <div class="month-head">
-      <span class="month-name">${monthLabel(mes)}</span>
+  const isFirst = mes === meses[0];
+  return `<div class="month-card${isFirst ? '' : ' collapsed'}" id="mc-${mes}">
+    <div class="month-head" onclick="toggleMonth('${mes}')">
+      <span class="month-name"><span class="month-chevron">&#9660;</span>${monthLabel(mes)}</span>
       <span class="month-cost">${$4(totalMes)}</span>
     </div>
+    <div class="month-body">
     <table><thead><tr>
       <th>Proyecto</th>
       <th class="td-r">${IS_PLAN?'Equiv. estim.':'Coste'}</th>
       <th class="td-r">%</th>
       <th>Detalle</th>
     </tr></thead><tbody>${filas}</tbody></table>
+    </div>
   </div>`;
 }).join('') || '<p class="empty">Sin datos</p>';
 
@@ -272,6 +291,10 @@ const html = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Claude Usage Tracker</title>
+${logoB64
+  ? `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,${logoB64}">`
+  : `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23FF6600'/><text x='16' y='21' text-anchor='middle' font-family='Arial' font-size='16' font-weight='bold' fill='white'>$</text></svg>">`
+}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -314,6 +337,8 @@ const html = `<!DOCTYPE html>
     display: flex; align-items: center; justify-content: center;
     font-weight: 700; font-size: 13px; color: #fff; flex-shrink: 0;
   }
+  .brand-logo { width: 32px; height: 32px; flex-shrink: 0; display: flex; align-items: center; }
+  .brand-logo svg { width: 32px; height: 32px; }
   .topbar-title { font-weight: 600; font-size: 15px; color: #fff; }
   .topbar-sub   { font-size: 12px; color: var(--dim2); margin-top: 1px; }
   .topbar-right { display: flex; align-items: center; gap: 10px; }
@@ -381,8 +406,13 @@ const html = `<!DOCTYPE html>
   .month-head {
     display: flex; justify-content: space-between; align-items: center;
     padding: 12px 20px; background: var(--bg3); border-bottom: 1px solid var(--border);
+    cursor: pointer; user-select: none;
   }
-  .month-name { font-weight: 600; font-size: 14px; color: #fff; }
+  .month-head:hover { background: var(--bg4); }
+  .month-name { font-weight: 600; font-size: 14px; color: #fff; display: flex; align-items: center; gap: 8px; }
+  .month-chevron { font-size: 10px; color: var(--dim2); transition: transform .2s; display: inline-block; }
+  .month-card.collapsed .month-chevron { transform: rotate(-90deg); }
+  .month-card.collapsed .month-body { display: none; }
   .month-cost { font-weight: 700; font-size: 15px; color: var(--orange); font-variant-numeric: tabular-nums; }
   table { width: 100%; border-collapse: collapse; }
   th {
@@ -425,7 +455,7 @@ const html = `<!DOCTYPE html>
 <!-- Topbar -->
 <header class="topbar">
   <div class="topbar-left">
-    <div class="brand-dot">O</div>
+    ${logoInline ? `<div class="brand-logo">${logoInline}</div>` : `<div class="brand-dot">$</div>`}
     <div>
       <div class="topbar-title">Claude Usage Tracker</div>
       <div class="topbar-sub">Orange &mdash; Monitorizacion de uso &middot; ${now}</div>
@@ -498,6 +528,10 @@ ${planBanner}
 </main>
 
 <script>
+function toggleMonth(mes) {
+  document.getElementById('mc-' + mes).classList.toggle('collapsed');
+}
+
 function showTab(name, btn) {
   document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
