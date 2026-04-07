@@ -157,13 +157,15 @@ claude-usage-tracker-windows/
 
 ## Precios de los modelos
 
-Precios oficiales de la API de Anthropic (USD por millón de tokens):
+Precios oficiales de la API de Anthropic (USD por millón de tokens) — _última actualización: abril 2026_:
 
 | Modelo | Entrada | Cache escr. | Cache lect. | Salida |
 |---|---|---|---|---|
 | Sonnet 4.6 / 3.7 / 3.5 | $3.00 | $3.75 | $0.30 | $15.00 |
-| Opus 4.6 / 4.5 / 3 | $15.00 | $18.75 | $1.50 | $75.00 |
-| Haiku 4.5 / 3.5 | $0.80 | $1.00 | $0.08 | $4.00 |
+| Opus 4.6 / 4.5 | $5.00 | $6.25 | $0.50 | $25.00 |
+| Opus 3 | $15.00 | $18.75 | $1.50 | $75.00 |
+| Haiku 4.5 | $1.00 | $1.25 | $0.10 | $5.00 |
+| Haiku 3.5 | $0.80 | $1.00 | $0.08 | $4.00 |
 | Haiku 3 | $0.25 | $0.30 | $0.03 | $1.25 |
 
 ---
